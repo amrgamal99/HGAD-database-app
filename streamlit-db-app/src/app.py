@@ -407,9 +407,9 @@ def main():
         file_name=f"{target_table}_{company_name}_{project_name}.csv",
         mime="text/csv",
     )
-pdf_title = f"{target_table}_{company_name}_{project_name}"
-pdf_bytes = make_pdf_bytes(df, pdf_name=pdf_title)
-st.download_button(
+    pdf_title = f"{target_table}_{company_name}_{project_name}"
+    pdf_bytes = make_pdf_bytes(df, pdf_name=pdf_title)
+    st.download_button(
     label="تنزيل كـ PDF (عربي)",
     data=pdf_bytes,
     file_name=f"{pdf_title}.pdf",
