@@ -20,16 +20,16 @@ st.set_page_config(
 # ---------- Styles ----------
 st.markdown("""
 <style>
-/* ===== Force the sidebar ALWAYS open ===== */
-[data-testid="stSidebar"] { transform: none !important; visibility: visible !important; width: 340px !important; min-width: 340px !important; }
-[data-testid="stSidebar"][aria-expanded="false"] { transform: none !important; visibility: visible !important; }
+/* Sidebar always open */
+[data-testid="stSidebar"] { transform:none !important; visibility:visible !important; width:340px !important; min-width:340px !important; }
+[data-testid="stSidebar"][aria-expanded="false"] { transform:none !important; visibility:visible !important; }
 [data-testid="collapsedControl"],
 button[kind="header"],
 button[title="Expand sidebar"],
 button[title="Collapse sidebar"],
-[data-testid="stSidebarCollapseButton"] { display: none !important; }
+[data-testid="stSidebarCollapseButton"] { display:none !important; }
 
-/* ===== Root RTL & wrapping ===== */
+/* RTL root */
 html, body {
     direction: rtl !important;
     text-align: right !important;
@@ -44,12 +44,8 @@ html, body {
     position: sticky; top: 0; background: #1f2937; color: #f9fafb; z-index: 2;
     font-weight: 700; font-size: 16px;
 }
-[data-testid="stDataFrame"] div[role="row"] {
-    font-size: 15px;
-}
-[data-testid="stDataFrame"] div[role="row"]:nth-child(even) {
-    background-color: rgba(255,255,255,0.04);
-}
+[data-testid="stDataFrame"] div[role="row"] { font-size: 15px; }
+[data-testid="stDataFrame"] div[role="row"]:nth-child(even) { background-color: rgba(255,255,255,0.04); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -62,40 +58,49 @@ st.markdown("""
     <hr style="border:0; height:2px; background:linear-gradient(to left, transparent, #1E3A8A, transparent);"/>
 """, unsafe_allow_html=True)
 
-# ---------- Download helpers (Excel with real hyperlinks + CSV/TSV encodings) ----------
+# ---------- Download helpers ----------
 DATE_HINTS = ("تاريخ", "إصدار", "date")
 NUM_HINTS  = ("قيمة", "المستحق", "شيك", "التحويل", "USD", ")USD")
 
-def make_excel_bytes(df: pd.DataFrame) -> bytes:
-    """Create XLSX with Arabic-friendly formatting and clickable hyperlinks for any column containing 'رابط'."""
-    buf = BytesIO()
+def _pick_excel_engine():
+    """Return 'xlsxwriter' or 'openpyxl' if available; else None."""
     try:
         import xlsxwriter  # noqa: F401
-        engine = "xlsxwriter"
+        return "xlsxwriter"
     except Exception:
-        engine = "openpyxl"
+        pass
+    try:
+        import openpyxl  # noqa: F401
+        return "openpyxl"
+    except Exception:
+        return None
 
+def make_excel_bytes(df: pd.DataFrame) -> bytes | None:
+    """Create XLSX with hyperlinks (if engine exists). Returns None if no engine."""
+    engine = _pick_excel_engine()
+    if engine is None:
+        return None
+
+    buf = BytesIO()
     df_x = df.copy()
-
     with pd.ExcelWriter(buf, engine=engine) as writer:
         sheet = "البيانات"
-        # write data starting from row 1; we'll write headers ourselves to control format
+        # write data from row 1; write headers manually
         df_x.to_excel(writer, index=False, sheet_name=sheet, startrow=1, header=False)
 
         if engine == "xlsxwriter":
             wb  = writer.book
             ws  = writer.sheets[sheet]
-
             fmt_text = wb.add_format({"align": "right"})
             fmt_date = wb.add_format({"align": "right", "num_format": "yyyy-mm-dd"})
             fmt_num  = wb.add_format({"align": "right", "num_format": "#,##0.00"})
             fmt_link = wb.add_format({"font_color": "blue", "underline": 1, "align": "right"})
 
-            # headers (row 0)
+            # headers
             for col_num, col_name in enumerate(df_x.columns):
                 ws.write(0, col_num, col_name, fmt_text)
 
-            # write cells with types & hyperlinks
+            # cells
             for idx, col in enumerate(df_x.columns):
                 series = df_x[col]
                 max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
@@ -131,15 +136,17 @@ def make_excel_bytes(df: pd.DataFrame) -> bytes:
                         ws.write(row_num, idx, "" if pd.isna(val) else str(val), fmt_text)
                     ws.set_column(idx, idx, width, fmt_text)
 
+        else:
+            # openpyxl path: simple write (no hyperlink styling API here)
+            df_x.to_excel(writer, index=False, sheet_name=sheet)
+
     buf.seek(0)
     return buf.getvalue()
 
 def make_csv_utf8(df: pd.DataFrame) -> bytes:
-    """CSV with UTF-8 BOM (works in most modern Excel)."""
     return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
 def make_tsv_utf16(df: pd.DataFrame) -> bytes:
-    """TSV with UTF-16 (Excel on Windows opens Arabic correctly almost always)."""
     tsv_str = df.to_csv(index=False, sep="\t")
     return tsv_str.encode("utf-16")
 
@@ -179,24 +186,26 @@ def main():
     column_config = {}
     for col in df.columns:
         if "رابط" in col:
-            column_config[col] = st.column_config.LinkColumn(
-                label=col,
-                display_text="فتح الرابط"
-            )
+            column_config[col] = st.column_config.LinkColumn(label=col, display_text="فتح الرابط")
 
-    # --- Show table exactly as in DB ---
+    # --- Show table ---
     st.markdown("### البيانات")
     st.dataframe(df, column_config=column_config, use_container_width=True, hide_index=True)
 
-    # --- Download buttons (Excel with hyperlinks + CSV/TSV encodings) ---
+    # --- Downloads ---
+    # Excel (only if engine exists)
     xlsx_bytes = make_excel_bytes(df)
-    st.download_button(
-        label="تنزيل كـ Excel (XLSX) – مُوصى به",
-        data=xlsx_bytes,
-        file_name=f"{target_table}_{company_name}_{project_name}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    if xlsx_bytes is not None:
+        st.download_button(
+            label="تنزيل كـ Excel (XLSX) – مُوصى به",
+            data=xlsx_bytes,
+            file_name=f"{target_table}_{company_name}_{project_name}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    else:
+        st.info("لتمكين تنزيل Excel مع روابط قابلة للنقر، أضف إلى requirements: `xlsxwriter` أو `openpyxl`.")
 
+    # CSV / TSV
     csv_bytes = make_csv_utf8(df)
     st.download_button(
         label="تنزيل كـ CSV (UTF-8)",
