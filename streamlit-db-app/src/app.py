@@ -9,19 +9,31 @@ from components.filters import (
 )
 
 def main():
-    st.set_page_config(layout="wide", page_title="نظام التقارير المالية")
-    # تفعيل اتجاه RTL وخط عربي بسيط
     st.markdown("""
         <style>
             html, body, [data-testid="stAppViewContainer"] * {
-                direction: rtl; text-align: right;
+                direction: rtl;
+                text-align: right;
                 font-family: "Segoe UI", "Cairo", "Noto Kufi Arabic", Tahoma, sans-serif;
+                white-space: normal !important;
+                word-wrap: break-word !important;
             }
-            .block-container { padding-top: 1rem; }
+            .block-container {
+                padding-top: 1rem;
+            }
+            [data-testid="stAlert"] {
+                white-space: normal !important;
+            }
         </style>
     """, unsafe_allow_html=True)
 
-    st.title("عارض قاعدة البيانات والتقارير المالية")
+    st.markdown("""
+    <h1 style="text-align:center; direction:rtl; color:#1E3A8A; font-family:'Cairo', sans-serif;">
+        عارض قاعدة البيانات والتقارير المالية  
+        <span style="font-size:20px; color:#555;">(HGAD Company)</span>
+    </h1>
+    <hr style="border: 2px solid #1E3A8A; border-radius: 5px;"/>
+""", unsafe_allow_html=True)
 
     conn = get_db_connection()
     if conn is None:
