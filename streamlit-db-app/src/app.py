@@ -239,7 +239,8 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
     )
 
     # Title text with file name between brackets
-    title_text = f"قاعدة البيانات والتقارير المالية ({pdf_name})"
+    base_title = "قاعدة البيانات والتقارير المالية"
+    title_text = f"{base_title} ({pdf_name})" if pdf_name else base_title
     if arabic_ok:
         title_text = shape_arabic(title_text)
 
@@ -406,15 +407,17 @@ def main():
         file_name=f"{target_table}_{company_name}_{project_name}.csv",
         mime="text/csv",
     )
+pdf_title = f"{target_table}_{company_name}_{project_name}"
+pdf_bytes = make_pdf_bytes(df, pdf_name=pdf_title)
+st.download_button(
+    label="تنزيل كـ PDF (عربي)",
+    data=pdf_bytes,
+    file_name=f"{pdf_title}.pdf",
+    mime="application/pdf",
+)
 
-    # PDF (Arabic RTL with clickable links, tuned to look like XLSX)
-    pdf_bytes = make_pdf_bytes(df)
-    st.download_button(
-        label="تنزيل كـ PDF (عربي)",
-        data=pdf_bytes,
-        file_name=f"{target_table}_{company_name}_{project_name}.pdf",
-        mime="application/pdf",
-    )
+
+
 
 if __name__ == "__main__":
     main()
