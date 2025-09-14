@@ -1,20 +1,11 @@
+import os
 import re
-import streamlit as st
-import pandas as pd
 from io import BytesIO
 
-# PDF & Arabic
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-import arabic_reshaper
-from bidi.algorithm import get_display
+import streamlit as st
+import pandas as pd
 
-# ---------- Arabic PDF helpers (robust fonts + clean links) ----------
-import os, re
+# PDF & Arabic
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -80,12 +71,17 @@ st.markdown("""
     <hr style="border:0; height:2px; background:linear-gradient(to left, transparent, #1E3A8A, transparent);"/>
 """, unsafe_allow_html=True)
 
-# ---------- Download helpers ----------
+# ---------- Helpers ----------
 DATE_HINTS = ("تاريخ", "إصدار", "date")
 NUM_HINTS  = ("قيمة", "المستحق", "شيك", "التحويل", "USD", ")USD")
 
+def _safe_filename(s: str) -> str:
+    return (s or "").replace("/", "-").replace("\\", "-").replace(":", "-")\
+                    .replace("*", "-").replace("?", "-").replace('"', "'")\
+                    .replace("<", "(").replace(">", ")").replace("|", "-")
+
+# ---------- Excel helpers ----------
 def _pick_excel_engine():
-    """Return 'xlsxwriter' or 'openpyxl' if available; else None."""
     try:
         import xlsxwriter  # noqa: F401
         return "xlsxwriter"
@@ -98,7 +94,6 @@ def _pick_excel_engine():
         return None
 
 def make_excel_bytes(df: pd.DataFrame) -> bytes | None:
-    """Create XLSX with hyperlinks (if engine exists). Returns None if no engine."""
     engine = _pick_excel_engine()
     if engine is None:
         return None
@@ -156,7 +151,6 @@ def make_excel_bytes(df: pd.DataFrame) -> bytes | None:
                     for row_num, val in enumerate(series, start=1):
                         ws.write(row_num, idx, "" if pd.isna(val) else str(val), fmt_text)
                     ws.set_column(idx, idx, width, fmt_text)
-
         else:
             # openpyxl simple path
             df_x.to_excel(writer, index=False, sheet_name=sheet)
@@ -167,14 +161,11 @@ def make_excel_bytes(df: pd.DataFrame) -> bytes | None:
 def make_csv_utf8(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
-
-
-
-# try these fonts in order
+# ---------- Arabic PDF helpers (robust fonts + clean links + pdf_name) ----------
 AR_FONT_CANDIDATES = [
     "assets/Cairo-Regular.ttf",
     "assets/Amiri-Regular.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # often present on Linux
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 ]
 _AR_RE = re.compile(r'[\u0600-\u06FF]')
 
@@ -185,20 +176,16 @@ def _first_existing_font_path():
     return None
 
 def register_arabic_font() -> tuple[str, bool]:
-    """
-    Register an Arabic-capable TTF if found.
-    Returns (font_name, supports_arabic).
-    """
+    """Return (font_name, arabic_supported)."""
     p = _first_existing_font_path()
     if p:
-        name = os.path.splitext(os.path.basename(p))[0]  # e.g., Cairo-Regular -> Cairo-Regular
+        name = os.path.splitext(os.path.basename(p))[0]
         try:
             pdfmetrics.registerFont(TTFont(name, p))
             return name, True
         except Exception:
             pass
-    # fallback
-    return "Helvetica", False  # will render but no Arabic glyphs
+    return "Helvetica", False
 
 def looks_arabic(s: str) -> bool:
     return bool(_AR_RE.search(str(s or "")))
@@ -209,12 +196,13 @@ def shape_arabic(s: str) -> str:
     except Exception:
         return str(s)
 
-def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
+def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 120) -> bytes:
     """
-    Landscape A4 PDF mirroring the on-screen table:
-    - Preserves DataFrame column order
-    - Shapes Arabic text when an Arabic font is available
-    - Columns with 'رابط' or 'link' are rendered as clickable 'فتح الرابط' (or 'Open link' if Arabic font missing)
+    PDF (landscape A4) mirroring the on-screen table:
+    - Preserves column order
+    - Arabic shaping if font available
+    - Clickable links as 'فتح الرابط' (or 'Open link' if no Arabic font)
+    - Title includes (pdf_name) in brackets if provided
     - Auto column widths, scaled to fit page
     """
     buf = BytesIO()
@@ -222,38 +210,10 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
     font_name, arabic_ok = register_arabic_font()
     link_label = "فتح الرابط" if arabic_ok else "Open link"
 
+    # Page/doc
     page = landscape(A4)
     doc = SimpleDocTemplate(
-        buf,
-        pagesize=page,
-        rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=20
-    )
-
-    # Styles
-    title_style = ParagraphStyle(
-        name="Title",
-        fontName=font_name,
-        fontSize=16,
-        leading=20,
-        alignment=1  # CENTER
-    )
-
-    # Title text with file name between brackets
-    base_title = "قاعدة البيانات والتقارير المالية"
-    title_text = f"{base_title} ({pdf_name})" if pdf_name else base_title
-    if arabic_ok:
-        title_text = shape_arabic(title_text)
-
-    # ---------------- rest of the code stays the same ----------------
-    header_paragraphs = []
-    for col in df.columns:
-        text = shape_arabic(col) if arabic_ok and looks_arabic(col) else str(col)
-        header_paragraphs.append(Paragraph(text, title_style))
-
-    page = landscape(A4)
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=page,
+        buf, pagesize=page,
         rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=20
     )
 
@@ -265,7 +225,13 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
     cell_link   = ParagraphStyle(name="CellK", fontName=font_name, fontSize=9, leading=12, alignment=1,
                                  textColor=colors.HexColor("#1E3A8A"), underline=True)
 
-    # Header row: shape only if we can display Arabic glyphs
+    # Title with pdf_name
+    base_title = "قاعدة البيانات والتقارير المالية"
+    title_text = f"{base_title} ({pdf_name})" if pdf_name else base_title
+    if arabic_ok:
+        title_text = shape_arabic(title_text)
+
+    # Header row
     header_paragraphs = []
     for col in df.columns:
         text = shape_arabic(col) if arabic_ok and looks_arabic(col) else str(col)
@@ -273,7 +239,7 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
 
     rows = [header_paragraphs]
 
-    # Determine link columns (Arabic or English header)
+    # Link columns (Arabic or English header names)
     link_cols_idx = [i for i, c in enumerate(df.columns) if ("رابط" in str(c)) or ("link" in str(c).lower())]
 
     # Body rows
@@ -296,7 +262,7 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
                 cells.append(Paragraph(sval, cell_ltr))
         rows.append(cells)
 
-    # Column widths (use link label length for link columns)
+    # Column widths (use link label for link columns)
     avail_w = page[0] - doc.leftMargin - doc.rightMargin
     col_widths = []
     for idx, col in enumerate(df.columns):
@@ -304,7 +270,7 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
             max_len = max(len(str(col)), len(link_label))
         else:
             max_len = max(len(str(col)), df[col].astype(str).map(len).max())
-        width = min(max_len * 7, max_col_width)  # ~7 px per char
+        width = min(max_len * 7, max_col_width)  # ~7 px/char
         col_widths.append(width)
 
     total_w = sum(col_widths)
@@ -322,8 +288,7 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
         ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
         ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
     ]
-
-    # Per-column alignment similar to XLSX
+    # per-column align similar to XLSX
     for idx, col in enumerate(df.columns):
         if any(h in str(col) for h in DATE_HINTS):
             align = "CENTER"
@@ -338,11 +303,9 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
     table.setStyle(TableStyle(style_cmds))
 
     elems = [Paragraph(title_text, title_style), Spacer(1, 12), table]
-
     doc.build(elems)
     buf.seek(0)
     return buf.getvalue()
-
 
 # ---------- App ----------
 def main():
@@ -387,37 +350,36 @@ def main():
     st.dataframe(df, column_config=column_config, use_container_width=True, hide_index=True)
 
     # --- Downloads ---
-    # Excel (only if engine exists)
+    # Excel
     xlsx_bytes = make_excel_bytes(df)
     if xlsx_bytes is not None:
         st.download_button(
             label="تنزيل كـ Excel (XLSX) – مُوصى به",
             data=xlsx_bytes,
-            file_name=f"{target_table}_{company_name}_{project_name}.xlsx",
+            file_name=_safe_filename(f"{target_table}_{company_name}_{project_name}.xlsx"),
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     else:
         st.info("لتمكين تنزيل Excel مع روابط قابلة للنقر، أضف إلى requirements: `xlsxwriter` أو `openpyxl`.")
 
-    # CSV (UTF-8 with BOM for Arabic in Excel)
+    # CSV
     csv_bytes = make_csv_utf8(df)
     st.download_button(
         label="تنزيل كـ CSV (UTF-8)",
         data=csv_bytes,
-        file_name=f"{target_table}_{company_name}_{project_name}.csv",
+        file_name=_safe_filename(f"{target_table}_{company_name}_{project_name}.csv"),
         mime="text/csv",
     )
-    pdf_title = f"{target_table}_{company_name}_{project_name}"
+
+    # PDF (with name in title)
+    pdf_title = _safe_filename(f"{target_table}_{company_name}_{project_name}")
     pdf_bytes = make_pdf_bytes(df, pdf_name=pdf_title)
     st.download_button(
-    label="تنزيل كـ PDF (عربي)",
-    data=pdf_bytes,
-    file_name=f"{pdf_title}.pdf",
-    mime="application/pdf",
-)
-
-
-
+        label="تنزيل كـ PDF (عربي)",
+        data=pdf_bytes,
+        file_name=f"{pdf_title}.pdf",
+        mime="application/pdf",
+    )
 
 if __name__ == "__main__":
     main()
