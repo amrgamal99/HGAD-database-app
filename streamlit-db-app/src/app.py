@@ -10,7 +10,7 @@ from components.filters import (
 
 # ---------- Page config ----------
 st.set_page_config(
-    page_title="عارض قاعدة البيانات والتقارير المالية | HGAD",
+    page_title=" قاعدة البيانات والتقارير المالية | HGAD",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -54,7 +54,7 @@ html, body {
 # ---------- Header ----------
 st.markdown("""
     <h1 style="text-align:center; color:#1E3A8A; font-weight:800;">
-        عارض قاعدة البيانات والتقارير المالية
+     قاعدة البيانات والتقارير المالية
         <span style="font-size:20px; color:#4b5563;">| HGAD Company</span>
     </h1>
     <hr style="border:0; height:2px; background:linear-gradient(to left, transparent, #1E3A8A, transparent);"/>
