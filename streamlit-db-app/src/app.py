@@ -10,10 +10,25 @@ from components.filters import (
 
 def main():
     st.set_page_config(
-        page_title="عارض قاعدة البيانات والتقارير المالية | HGAD",
-        layout="wide",
-        initial_sidebar_state="expanded",
-    )
+    page_title=" قاعدة البيانات والتقارير المالية | HGAD",
+    layout="wide",
+    initial_sidebar_state="expanded",   # ✅ open by default
+)
+
+# keep sidebar forced open + hide collapse chevron
+    st.markdown("""
+<style>
+/* Force sidebar to stay visible */
+[data-testid="stSidebar"] { transform: none !important; }
+[data-testid="stSidebar"][aria-expanded="false"] { transform: none !important; }
+
+/* Hide the “collapse sidebar” button in footer and header */
+button[kind="header"], [data-testid="collapsedControl"] { display: none !important; }
+
+/* (rest of your CSS)… */
+</style>
+""", unsafe_allow_html=True)
+
 
     # ===== Global Styles (RTL + anti-vertical text + toolbar/side fixes) =====
     st.markdown("""

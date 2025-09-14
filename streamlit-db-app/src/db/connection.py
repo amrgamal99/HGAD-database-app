@@ -40,25 +40,26 @@ def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFra
             return pd.DataFrame(columns=["اسم المشروع"])
         company_id = company_resp.data["companyid"]
 
+        # ✅ IMPORTANT: quote the Arabic column OR use filter()
         projects_resp = (
             supabase.table("contract")
-            .select('اسم المشروع')
+            .select('"اسم المشروع"')           # quoted identifier
             .eq("companyid", company_id)
             .execute()
         )
         df = pd.DataFrame(projects_resp.data or [])
+        # normalize column name in case the client returns it quoted
+        df = df.rename(columns={'"اسم المشروع"': 'اسم المشروع'})
         return df.drop_duplicates()
-    except Exception:
+
+    except Exception as e:
+        # Optional: show error in UI while developing
+        st.caption(f"⚠️ fetch_projects_by_company error: {e}")
         return pd.DataFrame(columns=["اسم المشروع"])
 
-# جلب البيانات بحسب (شركة + مشروع + جدول)
+
 def fetch_data(supabase: Client, company_name: str, project_name: str, target_table: str) -> pd.DataFrame:
-    """
-    target_table one of: 'contract' | 'guarantee' | 'invoice' | 'checks'
-    يطابق المخطط الجديد بأسماء الأعمدة العربية داخل الجداول.
-    """
     try:
-        # احصل على companyid
         company_resp = (
             supabase.table("company")
             .select("companyid")
@@ -70,12 +71,12 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
             return pd.DataFrame()
         company_id = company_resp.data["companyid"]
 
-        # احصل على contractid للمشروع المحدد
+        # ✅ IMPORTANT: quote Arabic column in SELECT, and use filter() for equality
         contract_resp = (
             supabase.table("contract")
-            .select("contractid, companyid, اسم المشروع")
+            .select('contractid, companyid, "اسم المشروع"')
             .eq("companyid", company_id)
-            .eq("اسم المشروع", project_name)
+            .filter('اسم المشروع', 'eq', project_name)  # safer for non-ASCII names
             .single()
             .execute()
         )
@@ -83,7 +84,6 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
             return pd.DataFrame()
         contract_id = contract_resp.data["contractid"]
 
-        # احضار البيانات
         tbl = target_table.lower()
         if tbl == "contract":
             resp = (
@@ -109,18 +109,25 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
 
         df = pd.DataFrame(data)
 
-        # حذف أعمدة IDs من العرض
+        # drop *_id columns from display
         if not df.empty:
-            cols_to_drop = [c for c in df.columns if c.lower().endswith("id")]
-            df.drop(columns=cols_to_drop, inplace=True, errors="ignore")
+            df.drop(columns=[c for c in df.columns if c.lower().endswith("id")],
+                    inplace=True, errors="ignore")
 
-        # تنسيقات طفيفة (تواريخ/أرقام/روابط)
-        df = _format_columns_for_display(df)
+        # optional: format Arabic date columns
+        for col in df.columns:
+            if "تاريخ" in col or "إصدار" in col:
+                with pd.option_context('mode.chained_assignment', None):
+                    try:
+                        df[col] = pd.to_datetime(df[col]).dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
         return df
 
     except Exception as e:
-        st.error(f"حدث خطأ أثناء جلب البيانات: {e}")
+        st.caption(f"⚠️ fetch_data error: {e}")
         return pd.DataFrame()
+
 
 def _format_columns_for_display(df: pd.DataFrame) -> pd.DataFrame:
     df2 = df.copy()
