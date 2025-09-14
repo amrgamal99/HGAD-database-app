@@ -230,6 +230,33 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
     )
 
     # Styles
+    title_style = ParagraphStyle(
+        name="Title",
+        fontName=font_name,
+        fontSize=16,
+        leading=20,
+        alignment=1  # CENTER
+    )
+
+    # Title text with file name between brackets
+    title_text = f"قاعدة البيانات والتقارير المالية ({pdf_name})"
+    if arabic_ok:
+        title_text = shape_arabic(title_text)
+
+    # ---------------- rest of the code stays the same ----------------
+    header_paragraphs = []
+    for col in df.columns:
+        text = shape_arabic(col) if arabic_ok and looks_arabic(col) else str(col)
+        header_paragraphs.append(Paragraph(text, title_style))
+
+    page = landscape(A4)
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=page,
+        rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=20
+    )
+
+    # Styles
     title_style = ParagraphStyle(name="Title", fontName=font_name, fontSize=16, leading=20, alignment=1)  # CENTER
     hdr_style   = ParagraphStyle(name="Hdr",   fontName=font_name, fontSize=10, textColor=colors.whitesmoke, alignment=1)
     cell_rtl    = ParagraphStyle(name="CellR", fontName=font_name, fontSize=9, leading=12, alignment=2)  # RIGHT
@@ -309,9 +336,8 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
 
     table.setStyle(TableStyle(style_cmds))
 
-    elems = [Paragraph(shape_arabic("قاعدة البيانات والتقارير المالية") if arabic_ok else "قاعدة البيانات والتقارير المالية",
-                       title_style),
-             Spacer(1, 12), table]
+    elems = [Paragraph(title_text, title_style), Spacer(1, 12), table]
+
     doc.build(elems)
     buf.seek(0)
     return buf.getvalue()
