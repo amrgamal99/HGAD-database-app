@@ -1,3 +1,4 @@
+import re
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -155,8 +156,9 @@ def make_excel_bytes(df: pd.DataFrame) -> bytes | None:
 def make_csv_utf8(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
-# ---------- Arabic PDF helpers ----------
-AR_FONT_PATH = "assets/Cairo-Regular.ttf"  # change if you put your font elsewhere
+# ---------- Arabic PDF helpers (make it look like XLSX) ----------
+AR_FONT_PATH = "assets/Cairo-Regular.ttf"  # change to your font path if needed
+_AR_RE = re.compile(r'[\u0600-\u06FF]')
 
 def register_arabic_font() -> str | None:
     """Register an Arabic TTF font once; return its name or None if missing."""
@@ -166,26 +168,27 @@ def register_arabic_font() -> str | None:
     except Exception:
         return None
 
-def ar(txt: str) -> str:
-    """Shape + bidi Arabic text so it renders correctly."""
-    if txt is None:
-        return ""
+def looks_arabic(s: str) -> bool:
+    return bool(_AR_RE.search(str(s)))
+
+def shape_arabic(s: str) -> str:
     try:
-        return get_display(arabic_reshaper.reshape(str(txt)))
+        return get_display(arabic_reshaper.reshape(str(s)))
     except Exception:
-        return str(txt)
+        return str(s)
 
 def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
     """
-    Generate a landscape A4 PDF that mirrors the Streamlit table:
-    - keeps the same column order,
-    - shapes Arabic text (RTL) using Cairo font (if available),
-    - auto-sizes columns to fit the page.
+    Generate a landscape A4 PDF similar to the XLSX export:
+    - keeps DataFrame column order,
+    - Arabic shaping for Arabic text only,
+    - link columns render as clickable 'فتح الرابط',
+    - auto column widths with page-fit scaling.
     """
     buf = BytesIO()
-
     font_name = register_arabic_font() or "Helvetica"
 
+    # Page + doc
     page = landscape(A4)
     doc = SimpleDocTemplate(
         buf,
@@ -193,26 +196,50 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
         rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=20
     )
 
-    title_style = ParagraphStyle(
-        name="TitleAR",
-        fontName=font_name,
-        fontSize=16,
-        leading=20,
-        alignment=1,  # CENTER
-    )
+    # Styles
+    title_style = ParagraphStyle(name="TitleAR", fontName=font_name, fontSize=16, leading=20, alignment=1)  # CENTER
+    hdr_style   = ParagraphStyle(name="HdrAR",   fontName=font_name, fontSize=10, textColor=colors.whitesmoke, alignment=1)
+    rtl_cell    = ParagraphStyle(name="CellRTL", fontName=font_name, fontSize=9, leading=12, alignment=2)  # RIGHT
+    ltr_cell    = ParagraphStyle(name="CellLTR", fontName=font_name, fontSize=9, leading=12, alignment=0)  # LEFT
+    link_cell   = ParagraphStyle(name="CellLink",fontName=font_name, fontSize=9, leading=12, alignment=1, textColor=colors.HexColor("#1E3A8A"), underline=True)
 
-    # Data (preserve order exactly like df)
-    headers = [ar(c) for c in df.columns]
-    data = [headers]
+    # 1) Header row (Paragraphs so we can shape Arabic)
+    header_paragraphs = []
+    for col in df.columns:
+        h = shape_arabic(col) if looks_arabic(col) else str(col)
+        header_paragraphs.append(Paragraph(h, hdr_style))
+
+    # 2) Body rows
+    table_rows = [header_paragraphs]
+    link_cols_idx = [i for i, c in enumerate(df.columns) if "رابط" in c]
+
     for _, row in df.iterrows():
-        data.append([ar(v) for v in row.astype(str).tolist()])
+        cells = []
+        for i, col in enumerate(df.columns):
+            val = row[col]
+            sval = "" if pd.isna(val) else str(val)
 
-    # Column widths based on content length
-    ncols = len(df.columns)
+            # render links as clickable short label
+            if i in link_cols_idx and sval.startswith(("http://", "https://")):
+                cells.append(Paragraph(f'<link href="{sval}">{shape_arabic("فتح الرابط")}</link>', link_cell))
+                continue
+
+            # Arabic vs non-Arabic text
+            if looks_arabic(sval):
+                cells.append(Paragraph(shape_arabic(sval), rtl_cell))
+            else:
+                cells.append(Paragraph(sval, ltr_cell))
+        table_rows.append(cells)
+
+    # 3) Compute column widths based on visible content (use "فتح الرابط" for link columns)
     avail_w = page[0] - doc.leftMargin - doc.rightMargin
     col_widths = []
-    for col in df.columns:
-        max_len = max(len(str(col)), df[col].astype(str).map(len).max())
+    for idx, col in enumerate(df.columns):
+        if idx in link_cols_idx:
+            max_len = max(len(str(col)), len("فتح الرابط"))
+        else:
+            col_len = max(len(str(col)), df[col].astype(str).map(len).max())
+            max_len = col_len
         width = min(max_len * 7, max_col_width)  # ~7 px per char
         col_widths.append(width)
 
@@ -221,21 +248,35 @@ def make_pdf_bytes(df: pd.DataFrame, max_col_width: int = 120) -> bytes:
         scale = avail_w / total_w
         col_widths = [w * scale for w in col_widths]
 
-    table = Table(data, repeatRows=1, colWidths=col_widths)
-    table.setStyle(TableStyle([
+    # 4) Build table
+    table = Table(table_rows, repeatRows=1, colWidths=col_widths)
+    style_cmds = [
         ("FONTNAME", (0, 0), (-1, -1), font_name),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
         ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
-
         ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-    ]))
+    ]
 
-    elems = [Paragraph(ar("قاعدة البيانات والتقارير المالية"), title_style), Spacer(1, 12), table]
+    # Per-column alignment similar to Excel
+    for idx, col in enumerate(df.columns):
+        align = "CENTER"
+        if any(h in col for h in DATE_HINTS):
+            align = "CENTER"
+        elif any(h in col for h in NUM_HINTS) or pd.api.types.is_numeric_dtype(df[col]):
+            align = "RIGHT"
+        elif idx in link_cols_idx:
+            align = "CENTER"
+        else:
+            # if column header is Arabic, default RIGHT; otherwise LEFT
+            align = "RIGHT" if looks_arabic(col) else "LEFT"
+        style_cmds.append(("ALIGN", (idx, 1), (idx, -1), align))
+
+    table.setStyle(TableStyle(style_cmds))
+
+    elems = [Paragraph(shape_arabic("قاعدة البيانات والتقارير المالية"), title_style), Spacer(1, 12), table]
     doc.build(elems)
     buf.seek(0)
     return buf.getvalue()
@@ -304,7 +345,7 @@ def main():
         mime="text/csv",
     )
 
-    # PDF (Arabic RTL with Cairo font if available)
+    # PDF (Arabic RTL with clickable links, tuned to look like XLSX)
     pdf_bytes = make_pdf_bytes(df)
     st.download_button(
         label="تنزيل كـ PDF (عربي)",
