@@ -15,30 +15,57 @@ def main():
         initial_sidebar_state="expanded",
     )
 
-    # ===== Global Styles (RTL, anti-vertical text, themed header/sidebar) =====
+    # ===== Global Styles (RTL + anti-vertical text + toolbar/side fixes) =====
     st.markdown("""
         <style>
-            /* Global Arabic RTL + wrapping */
-            html, body, [data-testid="stAppViewContainer"] * {
+            /* Root: enforce RTL + normal wrapping, avoid horizontal overflow */
+            html, body {
                 direction: rtl !important;
                 text-align: right !important;
                 font-family: "Cairo","Noto Kufi Arabic","Segoe UI",Tahoma,sans-serif !important;
+                white-space: normal !important;
+                word-wrap: break-word !important;
+                overflow-x: hidden !important; /* ✅ remove horizontal scroll/ghost columns */
+            }
+
+            /* App container content only (safe to style deeply) */
+            [data-testid="stAppViewContainer"] * {
+                direction: rtl !important;
+                text-align: right !important;
                 white-space: normal !important;
                 word-wrap: break-word !important;
                 writing-mode: horizontal-tb !important;
                 text-orientation: mixed !important;
             }
 
-            /* Sidebar: fix vertical letters + theme */
+            /* ✅ Keep Streamlit top toolbar LTR so it doesn't stack vertically */
+            [data-testid="stToolbar"], [data-testid="stToolbar"] * {
+                direction: ltr !important;
+                text-align: left !important;
+                writing-mode: horizontal-tb !important;
+                text-orientation: mixed !important;
+                white-space: normal !important;
+            }
+
+            /* Sidebar theme + fix vertical text */
             [data-testid="stSidebar"] {
                 background: #0f172a; /* slate-900 */
                 color: #e5e7eb;      /* gray-200 */
                 border-left: 1px solid #1f2937;
             }
             [data-testid="stSidebar"] * {
+                direction: rtl !important;
+                text-align: right !important;
                 white-space: normal !important;
                 writing-mode: horizontal-tb !important;
                 text-orientation: mixed !important;
+            }
+            /* Inputs inside sidebar: ensure RTL typing */
+            [data-testid="stSidebar"] input,
+            [data-testid="stSidebar"] textarea,
+            [data-testid="stSidebar"] select {
+                direction: rtl !important;
+                text-align: right !important;
             }
 
             /* Alerts wrap nicely */
