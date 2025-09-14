@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+from io import BytesIO
+
 from db.connection import get_db_connection, fetch_data
 from components.filters import (
     create_company_dropdown,
@@ -60,6 +62,87 @@ st.markdown("""
     <hr style="border:0; height:2px; background:linear-gradient(to left, transparent, #1E3A8A, transparent);"/>
 """, unsafe_allow_html=True)
 
+# ---------- Download helpers (Excel with real hyperlinks + CSV/TSV encodings) ----------
+DATE_HINTS = ("تاريخ", "إصدار", "date")
+NUM_HINTS  = ("قيمة", "المستحق", "شيك", "التحويل", "USD", ")USD")
+
+def make_excel_bytes(df: pd.DataFrame) -> bytes:
+    """Create XLSX with Arabic-friendly formatting and clickable hyperlinks for any column containing 'رابط'."""
+    buf = BytesIO()
+    try:
+        import xlsxwriter  # noqa: F401
+        engine = "xlsxwriter"
+    except Exception:
+        engine = "openpyxl"
+
+    df_x = df.copy()
+
+    with pd.ExcelWriter(buf, engine=engine) as writer:
+        sheet = "البيانات"
+        # write data starting from row 1; we'll write headers ourselves to control format
+        df_x.to_excel(writer, index=False, sheet_name=sheet, startrow=1, header=False)
+
+        if engine == "xlsxwriter":
+            wb  = writer.book
+            ws  = writer.sheets[sheet]
+
+            fmt_text = wb.add_format({"align": "right"})
+            fmt_date = wb.add_format({"align": "right", "num_format": "yyyy-mm-dd"})
+            fmt_num  = wb.add_format({"align": "right", "num_format": "#,##0.00"})
+            fmt_link = wb.add_format({"font_color": "blue", "underline": 1, "align": "right"})
+
+            # headers (row 0)
+            for col_num, col_name in enumerate(df_x.columns):
+                ws.write(0, col_num, col_name, fmt_text)
+
+            # write cells with types & hyperlinks
+            for idx, col in enumerate(df_x.columns):
+                series = df_x[col]
+                max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
+                width = min(max_len + 4, 60)
+
+                if "رابط" in col:
+                    for row_num, val in enumerate(series, start=1):
+                        sval = "" if pd.isna(val) else str(val)
+                        if sval.startswith(("http://", "https://")):
+                            ws.write_url(row_num, idx, sval, fmt_link, string="فتح الرابط")
+                        else:
+                            ws.write(row_num, idx, sval, fmt_text)
+                    ws.set_column(idx, idx, max(20, width), fmt_link)
+
+                elif pd.api.types.is_datetime64_any_dtype(series):
+                    for row_num, val in enumerate(series, start=1):
+                        if pd.notna(val):
+                            ws.write_datetime(row_num, idx, pd.to_datetime(val), fmt_date)
+                        else:
+                            ws.write_blank(row_num, idx, None, fmt_text)
+                    ws.set_column(idx, idx, max(14, width), fmt_date)
+
+                elif pd.api.types.is_numeric_dtype(series):
+                    for row_num, val in enumerate(series, start=1):
+                        if pd.notna(val):
+                            ws.write_number(row_num, idx, float(val), fmt_num)
+                        else:
+                            ws.write_blank(row_num, idx, None, fmt_text)
+                    ws.set_column(idx, idx, max(14, width), fmt_num)
+
+                else:
+                    for row_num, val in enumerate(series, start=1):
+                        ws.write(row_num, idx, "" if pd.isna(val) else str(val), fmt_text)
+                    ws.set_column(idx, idx, width, fmt_text)
+
+    buf.seek(0)
+    return buf.getvalue()
+
+def make_csv_utf8(df: pd.DataFrame) -> bytes:
+    """CSV with UTF-8 BOM (works in most modern Excel)."""
+    return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+
+def make_tsv_utf16(df: pd.DataFrame) -> bytes:
+    """TSV with UTF-16 (Excel on Windows opens Arabic correctly almost always)."""
+    tsv_str = df.to_csv(index=False, sep="\t")
+    return tsv_str.encode("utf-16")
+
 # ---------- App ----------
 def main():
     conn = get_db_connection()
@@ -105,13 +188,29 @@ def main():
     st.markdown("### البيانات")
     st.dataframe(df, column_config=column_config, use_container_width=True, hide_index=True)
 
-    # --- CSV download (UTF-8 BOM for Excel/Arabic) ---
-    csv = df.to_csv(index=False, encoding="utf-8-sig")
+    # --- Download buttons (Excel with hyperlinks + CSV/TSV encodings) ---
+    xlsx_bytes = make_excel_bytes(df)
     st.download_button(
-        label="تنزيل كملف CSV",
-        data=csv,
+        label="تنزيل كـ Excel (XLSX) – مُوصى به",
+        data=xlsx_bytes,
+        file_name=f"{target_table}_{company_name}_{project_name}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    csv_bytes = make_csv_utf8(df)
+    st.download_button(
+        label="تنزيل كـ CSV (UTF-8)",
+        data=csv_bytes,
         file_name=f"{target_table}_{company_name}_{project_name}.csv",
         mime="text/csv",
+    )
+
+    tsv_bytes = make_tsv_utf16(df)
+    st.download_button(
+        label="تنزيل كـ TSV (UTF-16) – فتح مباشر في Excel",
+        data=tsv_bytes,
+        file_name=f"{target_table}_{company_name}_{project_name}.tsv",
+        mime="text/tab-separated-values",
     )
 
 if __name__ == "__main__":
