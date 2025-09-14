@@ -2,103 +2,134 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 
-# Define the function to get the Supabase client
+# تهيئة عميل Supabase مرة واحدة
 @st.cache_resource
-def get_db_connection():
-    """Initializes and returns a Supabase client instance."""
+def get_db_connection() -> Client | None:
     try:
         url = st.secrets["supabase_url"]
         key = st.secrets["supabase_key"]
         supabase_client: Client = create_client(url, key)
-        print("Supabase client initialized successfully!")
         return supabase_client
     except Exception as e:
-        print(f"Supabase client initialization failed: {e}")
-        st.error(f"Supabase client initialization failed. Please check your secrets. Error: {e}")
+        st.error(f"فشل تهيئة عميل Supabase. راجع secrets. الخطأ: {e}")
         return None
 
-# Function to fetch companies
-def fetch_companies(supabase: Client):
-    """Fetches all unique company names."""
+# الشركات
+def fetch_companies(supabase: Client) -> pd.DataFrame:
     try:
-        # Use lowercase table and column names for Supabase
-        response = supabase.table('company').select('companyname').execute()
-        df = pd.DataFrame(response.data)
-        # Rename column for the UI dropdown which expects 'CompanyName'
-        df = df.rename(columns={'companyname': 'CompanyName'})
+        resp = supabase.table("company").select("companyname").execute()
+        df = pd.DataFrame(resp.data or [])
+        df = df.rename(columns={"companyname": "اسم الشركة"})
         return df.drop_duplicates()
-    except Exception as e:
-        print(f"Error fetching companies: {e}")
-        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame(columns=["اسم الشركة"])
 
-# Function to fetch projects by company
-def fetch_projects_by_company(supabase: Client, company_name):
-    """Fetches projects for a given company name by first finding the company's ID."""
+# المشاريع بحسب الشركة (يعتمد على الحقل العربي "اسم المشروع")
+def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFrame:
     if not company_name:
-        return pd.DataFrame(columns=['ProjectTitle'])
-    
+        return pd.DataFrame(columns=["اسم المشروع"])
     try:
-        # Use lowercase table and column names
-        company_response = supabase.table('company').select('companyid').eq('companyname', company_name).single().execute()
-        if not company_response.data:
-            return pd.DataFrame()
-        company_id = company_response.data['companyid']
+        company_resp = (
+            supabase.table("company")
+            .select("companyid")
+            .eq("companyname", company_name)
+            .single()
+            .execute()
+        )
+        if not company_resp.data:
+            return pd.DataFrame(columns=["اسم المشروع"])
+        company_id = company_resp.data["companyid"]
 
-        # Use lowercase table and column names
-        projects_response = supabase.table('contract').select('projecttitle').eq('companyid', company_id).execute()
-        df = pd.DataFrame(projects_response.data)
-        # Rename column for the UI dropdown which expects 'ProjectTitle'
-        df = df.rename(columns={'projecttitle': 'ProjectTitle'})
-        return df
-    except Exception as e:
-        print(f"Error fetching projects for {company_name}: {e}")
-        return pd.DataFrame()
+        projects_resp = (
+            supabase.table("contract")
+            .select('اسم المشروع')
+            .eq("companyid", company_id)
+            .execute()
+        )
+        df = pd.DataFrame(projects_resp.data or [])
+        return df.drop_duplicates()
+    except Exception:
+        return pd.DataFrame(columns=["اسم المشروع"])
 
-# Function to fetch data with filters
-def fetch_data(supabase: Client, company_name=None, project_name=None, type_filter=None):
-    """Fetches data from a specified table using company and project names for filtering."""
-    if not all([company_name, project_name, type_filter]):
-        st.error("Please provide all necessary filters: company name, project name, and type filter.")
-        return pd.DataFrame()
-
+# جلب البيانات بحسب (شركة + مشروع + جدول)
+def fetch_data(supabase: Client, company_name: str, project_name: str, target_table: str) -> pd.DataFrame:
+    """
+    target_table one of: 'contract' | 'guarantee' | 'invoice' | 'checks'
+    يطابق المخطط الجديد بأسماء الأعمدة العربية داخل الجداول.
+    """
     try:
-        # Use lowercase table and column names
-        company_response = supabase.table('company').select('companyid').eq('companyname', company_name).single().execute()
-        if not company_response.data:
+        # احصل على companyid
+        company_resp = (
+            supabase.table("company")
+            .select("companyid")
+            .eq("companyname", company_name)
+            .single()
+            .execute()
+        )
+        if not company_resp.data:
             return pd.DataFrame()
-        company_id = company_response.data['companyid']
+        company_id = company_resp.data["companyid"]
 
-        contract_response = supabase.table('contract').select('contractid').eq('projecttitle', project_name).eq('companyid', company_id).single().execute()
-        if not contract_response.data:
+        # احصل على contractid للمشروع المحدد
+        contract_resp = (
+            supabase.table("contract")
+            .select("contractid, companyid, اسم المشروع")
+            .eq("companyid", company_id)
+            .eq("اسم المشروع", project_name)
+            .single()
+            .execute()
+        )
+        if not contract_resp.data:
             return pd.DataFrame()
-        contract_id = contract_response.data['contractid']
+        contract_id = contract_resp.data["contractid"]
 
-        # Convert the type_filter to lowercase to match the actual table name
-        target_table = type_filter.lower()
-
-        if target_table == 'contract':
-            response = supabase.table('contract').select('*').eq('contractid', contract_id).execute()
-        elif target_table in ['guarantee', 'invoice', 'checks']:
-            response = supabase.table(target_table).select('*').eq('companyid', company_id).eq('contractid', contract_id).execute()
+        # احضار البيانات
+        tbl = target_table.lower()
+        if tbl == "contract":
+            resp = (
+                supabase.table("contract")
+                .select("*")
+                .eq("contractid", contract_id)
+                .single()
+                .execute()
+            )
+            data = [resp.data] if resp.data else []
+        elif tbl in ["guarantee", "invoice", "checks"]:
+            resp = (
+                supabase.table(tbl)
+                .select("*")
+                .eq("companyid", company_id)
+                .eq("contractid", contract_id)
+                .execute()
+            )
+            data = resp.data or []
         else:
-            st.error("Invalid type filter.")
+            st.error("نوع البيانات غير صالح.")
             return pd.DataFrame()
-        if target_table == 'contract':
-            response = supabase.table('contract').select('*').eq('contractid', contract_id).execute()
-        elif target_table in ['guarantee', 'invoice', 'checks']:
-            response = supabase.table(target_table).select('*').eq('companyid', company_id).eq('contractid', contract_id).execute()
-        else:
-            st.error("Invalid type filter.")
-            return pd.DataFrame()
-            
-        df = pd.DataFrame(response.data)
-        
-        # Exclude columns ending with 'id' before returning to the interface
+
+        df = pd.DataFrame(data)
+
+        # حذف أعمدة IDs من العرض
         if not df.empty:
-            cols_to_drop = [col for col in df.columns if col.lower().endswith('id')]
-            df = df.drop(columns=cols_to_drop, errors='ignore')
-            
+            cols_to_drop = [c for c in df.columns if c.lower().endswith("id")]
+            df.drop(columns=cols_to_drop, inplace=True, errors="ignore")
+
+        # تنسيقات طفيفة (تواريخ/أرقام/روابط)
+        df = _format_columns_for_display(df)
         return df
+
     except Exception as e:
-        print(f"An error occurred while fetching data: {e}")
+        st.error(f"حدث خطأ أثناء جلب البيانات: {e}")
         return pd.DataFrame()
+
+def _format_columns_for_display(df: pd.DataFrame) -> pd.DataFrame:
+    df2 = df.copy()
+    # تحويل أعمدة التواريخ العربية إن وُجدت إلى صيغة YYYY-MM-DD
+    date_like_cols = [c for c in df2.columns if "تاريخ" in c or "إصدار" in c]
+    for col in date_like_cols:
+        try:
+            df2[col] = pd.to_datetime(df2[col]).dt.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    # لا تغيّر أعمدة الأرقام؛ تترك كما هي (Postgres numeric → float/decimal)
+    return df2

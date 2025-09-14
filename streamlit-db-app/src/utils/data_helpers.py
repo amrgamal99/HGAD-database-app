@@ -1,30 +1,19 @@
-def format_data_for_display(data):
-    # Function to format data for display in the Streamlit table
-    formatted_data = data.copy()
-    # Example formatting: Convert date columns to a more readable format
-    if 'date' in formatted_data.columns:
-        formatted_data['date'] = formatted_data['date'].dt.strftime('%Y-%m-%d')
-    return formatted_data
+import pandas as pd
 
-def filter_data_by_company(data, company_name):
-    # Function to filter data by selected company name
-    return data[data['company_name'] == company_name]
+def format_data_for_display(data: pd.DataFrame) -> pd.DataFrame:
+    """تنسيق عام إن رغبت باستخدامه لاحقًا."""
+    df = data.copy()
+    # مثال: محاولة تنسيق الأعمدة التي تبدو كتواريخ
+    for col in df.columns:
+        if "تاريخ" in col or "إصدار" in col:
+            try:
+                df[col] = pd.to_datetime(df[col]).dt.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+    return df
 
-def filter_data_by_project(data, project_name):
-    # Function to filter data by selected project name
-    return data[data['project_name'] == project_name]
+def filter_data_by_company(data: pd.DataFrame, company_name: str) -> pd.DataFrame:
+    return data[data["اسم الشركة"] == company_name]
 
-def filter_data_by_type(data, selected_type):
-    # Function to filter data by selected type
-    return data[data['type'] == selected_type]
-
-def prepare_data_for_table(data, company_name, project_name, selected_type):
-    # Function to prepare data for the table based on selected filters
-    if company_name:
-        data = filter_data_by_company(data, company_name)
-    if project_name:
-        data = filter_data_by_project(data, project_name)
-    if selected_type:
-        data = filter_data_by_type(data, selected_type)
-    
-    return format_data_for_display(data)
+def filter_data_by_project(data: pd.DataFrame, project_name: str) -> pd.DataFrame:
+    return data[data["اسم المشروع"] == project_name]
