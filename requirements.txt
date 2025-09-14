@@ -4,3 +4,4 @@ supabase
 python-dotenv
 xlsxwriter
 openpyxl
+reportlab

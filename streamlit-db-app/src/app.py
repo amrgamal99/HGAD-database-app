@@ -1,5 +1,9 @@
 import streamlit as st
 import pandas as pd
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet
 from io import BytesIO
 
 from db.connection import get_db_connection, fetch_data
@@ -149,6 +153,33 @@ def make_csv_utf8(df: pd.DataFrame) -> bytes:
 def make_tsv_utf16(df: pd.DataFrame) -> bytes:
     tsv_str = df.to_csv(index=False, sep="\t")
     return tsv_str.encode("utf-16")
+def make_pdf_bytes(df: pd.DataFrame) -> bytes:
+    """Create PDF with Arabic-friendly fonts and table layout."""
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4))
+
+    styles = getSampleStyleSheet()
+    styleN = styles["Normal"]
+
+    # Prepare table data (header + rows)
+    data = [list(df.columns)] + df.astype(str).values.tolist()
+
+    table = Table(data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+    ]))
+
+    elems = [Paragraph("قاعدة البيانات والتقارير المالية", styles["Title"]), table]
+    doc.build(elems)
+    buf.seek(0)
+    return buf.getvalue()
 
 # ---------- App ----------
 def main():
@@ -213,14 +244,15 @@ def main():
         file_name=f"{target_table}_{company_name}_{project_name}.csv",
         mime="text/csv",
     )
-
-    tsv_bytes = make_tsv_utf16(df)
+# PDF
+    pdf_bytes = make_pdf_bytes(df)
     st.download_button(
-        label="تنزيل كـ TSV (UTF-16) – فتح مباشر في Excel",
-        data=tsv_bytes,
-        file_name=f"{target_table}_{company_name}_{project_name}.tsv",
-        mime="text/tab-separated-values",
+        label="تنزيل كـ PDF",
+        data=pdf_bytes,
+        file_name=f"{target_table}_{company_name}_{project_name}.pdf",
+        mime="application/pdf",
     )
+
 
 if __name__ == "__main__":
     main()
