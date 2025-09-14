@@ -1,10 +1,14 @@
 import streamlit as st
 import pandas as pd
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from io import BytesIO
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet
-from io import BytesIO
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 from db.connection import get_db_connection, fetch_data
 from components.filters import (
@@ -153,31 +157,132 @@ def make_csv_utf8(df: pd.DataFrame) -> bytes:
 def make_tsv_utf16(df: pd.DataFrame) -> bytes:
     tsv_str = df.to_csv(index=False, sep="\t")
     return tsv_str.encode("utf-16")
-def make_pdf_bytes(df: pd.DataFrame) -> bytes:
-    """Create PDF with Arabic-friendly fonts and table layout."""
+# ======= PDF (RTL Arabic) helpers with column chunking =======
+from io import BytesIO
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import arabic_reshaper
+from bidi.algorithm import get_display
+
+AR_FONT_PATH = "assets/Cairo-Regular.ttf"  # عدّل المسار لو لزم
+
+def register_arabic_font():
+    """Register an Arabic TTF font once; fallback to Helvetica if not found."""
+    try:
+        pdfmetrics.registerFont(TTFont("Cairo", AR_FONT_PATH))
+        return "Cairo"
+    except Exception:
+        return None
+
+def ar(text: str) -> str:
+    """Shape + bidi for Arabic strings."""
+    if text is None:
+        return ""
+    try:
+        reshaped = arabic_reshaper.reshape(str(text))
+        return get_display(reshaped)
+    except Exception:
+        return str(text)
+
+def chunk_columns(df: pd.DataFrame, max_cols: int) -> list[list[str]]:
+    """Split DataFrame columns into chunks of at most max_cols (from right to left)."""
+    cols = df.columns.tolist()
+    # للـ RTL: نبدأ من اليمين، فنقسّم من النهاية
+    chunks = []
+    while cols:
+        chunk = cols[-max_cols:]  # آخر max_cols (يمين)
+        cols = cols[:-max_cols]
+        chunks.append(chunk)
+    return chunks  # كل عنصر قائمة بأسماء الأعمدة
+
+def df_to_rtl_table_data_for_cols(df: pd.DataFrame, cols: list[str]) -> list[list[str]]:
+    """Build a RTL table (headers + rows) for a subset of columns."""
+    headers = [ar(c) for c in cols][::-1]  # RTL: اعكس العناوين
+    data = [headers]
+    for _, row in df.iterrows():
+        cells = [ar(row[c]) for c in cols]     # نصوص مع تشكيل
+        data.append(cells[::-1])               # RTL: اعكس ترتيب الخلايا
+    return data
+
+def make_pdf_bytes(df: pd.DataFrame, max_cols_per_table: int = 8) -> bytes:
+    """
+    Create a landscape A4 PDF with Arabic RTL table(s).
+    If the DataFrame is wider than max_cols_per_table, it will be split across multiple tables/pages.
+    """
     buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=landscape(A4))
+    font_name = register_arabic_font()
 
-    styles = getSampleStyleSheet()
-    styleN = styles["Normal"]
+    # Page + styles
+    page = landscape(A4)
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=page,
+        rightMargin=24, leftMargin=24, topMargin=24, bottomMargin=24
+    )
 
-    # Prepare table data (header + rows)
-    data = [list(df.columns)] + df.astype(str).values.tolist()
+    title_style = ParagraphStyle(
+        name="TitleAR",
+        fontName=font_name or "Helvetica",
+        fontSize=18,
+        leading=22,
+        alignment=2,  # RIGHT
+    )
+    table_font = font_name or "Helvetica"
 
-    table = Table(data, repeatRows=1)
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
-        ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-    ]))
+    # Split into column chunks
+    col_chunks = chunk_columns(df, max_cols=max_cols_per_table)
 
-    elems = [Paragraph("قاعدة البيانات والتقارير المالية", styles["Title"]), table]
-    doc.build(elems)
+    elements = []
+    # Title once
+    elements.append(Paragraph(ar("قاعدة البيانات والتقارير المالية"), title_style))
+    elements.append(Spacer(1, 10))
+
+    for idx, cols in enumerate(col_chunks, start=1):
+        data = df_to_rtl_table_data_for_cols(df, cols)
+
+        # Compute equal col widths to fit page width
+        avail_w = page[0] - doc.leftMargin - doc.rightMargin
+        ncols = len(cols)
+        col_width = max(60, avail_w / max(ncols, 1))  # حد أدنى 60
+        col_widths = [col_width] * ncols
+
+        tbl = Table(data, repeatRows=1, colWidths=col_widths)
+        tbl.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), table_font),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+
+            ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+        ]))
+
+        # Subtitle for chunk if multiple pages
+        if len(col_chunks) > 1:
+            sub = Paragraph(ar(f"الأعمدة {idx} من {len(col_chunks)}"), ParagraphStyle(
+                name="SubAR",
+                fontName=font_name or "Helvetica",
+                fontSize=10,
+                alignment=2,
+            ))
+            elements.append(sub)
+            elements.append(Spacer(1, 6))
+
+        elements.append(tbl)
+
+        # Page break between chunks (except after last one)
+        if idx < len(col_chunks):
+            elements.append(PageBreak())
+
+    doc.build(elements)
     buf.seek(0)
     return buf.getvalue()
 
@@ -244,14 +349,15 @@ def main():
         file_name=f"{target_table}_{company_name}_{project_name}.csv",
         mime="text/csv",
     )
-# PDF
+    # --- PDF (Arabic RTL with embedded Cairo font) ---
     pdf_bytes = make_pdf_bytes(df)
     st.download_button(
-        label="تنزيل كـ PDF",
+        label="تنزيل كـ PDF (عربي)",
         data=pdf_bytes,
         file_name=f"{target_table}_{company_name}_{project_name}.pdf",
         mime="application/pdf",
     )
+
 
 
 if __name__ == "__main__":
