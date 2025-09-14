@@ -10,7 +10,7 @@ from components.filters import (
 
 # ---------- Page config ----------
 st.set_page_config(
-    page_title="عارض قاعدة البيانات والتقارير المالية | HGAD",
+    page_title=" قاعدة البيانات والتقارير المالية | HGAD",
     layout="wide",
     initial_sidebar_state="expanded",
 )
