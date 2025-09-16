@@ -209,8 +209,8 @@ html, body {
 # =========================================================
 c_logo, c_title = st.columns([1, 6], gap="small")
 with c_logo:
-    if logo_path:
-        st.image(logo_path, width=64)
+    if SITE_LOGO:
+        st.image(SITE_LOGO, width=64)
 with c_title:
     st.markdown(
         """
