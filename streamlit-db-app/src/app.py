@@ -21,7 +21,40 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import arabic_reshaper
 from bidi.algorithm import get_display
+# app.py
+import os
+import re
+from io import BytesIO
+from pathlib import Path
+from typing import Optional, Tuple
 
+import pandas as pd
+import streamlit as st
+
+# PDF & Arabic
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Table,
+    TableStyle,
+    Paragraph,
+    Spacer,
+    Image as RLImage,
+)
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import arabic_reshaper
+from bidi.algorithm import get_display
+
+from db.connection import get_db_connection, fetch_data
+from components.filters import (
+    create_company_dropdown,
+    create_project_dropdown,
+    create_type_dropdown,
+    create_column_search,
+)
 # Optional: Pillow for precise image sizing
 try:
     from PIL import Image as PILImage
@@ -136,96 +169,64 @@ st.set_page_config(
 
 # =========================================================
 # Global Styles (CSS)
-# - We build a header band that contains the title text.
-# - The square logo.png is placed TOP-RIGHT and BEHIND the band (no forced downscaling).
 # =========================================================
-header_img_css = ""
-if SITE_LOGO:
-    data_uri = _img_to_data_uri(SITE_LOGO)
-    # We do NOT force a height/width (no shrinking). We only cap with max-*
-    # to avoid blowing past the header band if the source is extremely large.
-    header_img_css = f"""
-    <style>
-      .hgad-header {{
-        position: relative;
-        padding: 18px 16px 8px 16px;
-        overflow: hidden;
-      }}
-      .hgad-header__logo {{
-        position: absolute;
-        top: -10px;       /* slightly up so it's "behind" band */
-        right: 0;
-        z-index: 0;       /* BEHIND the title text */
-        opacity: 0.18;    /* faint background mark */
-        pointer-events: none;
-      }}
-      .hgad-header__logo img {{
-        /* show 'as-is' without forced down-scaling; only prevent extreme overflow */
-        width: auto;
-        height: auto;
-        max-width: 55vw;     /* guardrail only */
-        max-height: 160px;   /* guardrail only */
-      }}
-      .hgad-header__title {{
-        position: relative;
-        z-index: 1;      /* above the logo */
-        color: #1E3A8A;
-        font-weight: 800;
-        margin: 0;
-        text-align: center;
-      }}
-    </style>
-    <div class="hgad-header">
-      <div class="hgad-header__logo">
-        <img src="{data_uri}" alt="HGAD" />
-      </div>
-      <h1 class="hgad-header__title">
-        قاعدة البيانات والتقارير المالية
-        <span style="font-size:20px; color:#4b5563;">| HGAD Company</span>
-      </h1>
-    </div>
-    <hr style="border:0; height:2px; background:linear-gradient(to left, transparent, #1E3A8A, transparent);"/>
-    """
-else:
-    header_img_css = """
-    <h1 style="color:#1E3A8A; font-weight:800; margin:0; text-align:center;">
-      قاعدة البيانات والتقارير المالية
-      <span style="font-size:20px; color:#4b5563;">| HGAD Company</span>
-    </h1>
-    <hr style="border:0; height:2px; background:linear-gradient(to left, transparent, #1E3A8A, transparent);"/>
-    """
-
 st.markdown(
-    f"""
+    """
 <style>
 /* Sidebar always open */
-[data-testid="stSidebar"] {{ transform:none !important; visibility:visible !important; width:340px !important; min-width:340px !important; }}
-[data-testid="stSidebar"][aria-expanded="false"] {{ transform:none !important; visibility:visible !important; }}
+[data-testid="stSidebar"] { transform:none !important; visibility:visible !important; width:340px !important; min-width:340px !important; }
+[data-testid="stSidebar"][aria-expanded="false"] { transform:none !important; visibility:visible !important; }
 [data-testid="collapsedControl"],
 button[kind="header"],
 button[title="Expand sidebar"],
 button[title="Collapse sidebar"],
-[data-testid="stSidebarCollapseButton"] {{ display:none !important; }}
+[data-testid="stSidebarCollapseButton"] { display:none !important; }
 
 /* RTL root */
-html, body {{
-    direction: rtl !important; text-align: right !important;
+html, body {
+    direction: rtl !important;
+    text-align: right !important;
     font-family: "Cairo","Noto Kufi Arabic","Segoe UI",Tahoma,sans-serif !important;
-    white-space: normal !important; word-wrap: break-word !important; overflow-x: hidden !important;
-}}
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    overflow-x: hidden !important;
+}
 
 /* DataFrame readability */
-[data-testid="stDataFrame"] thead tr th {{
+[data-testid="stDataFrame"] thead tr th {
     position: sticky; top: 0; background: #1f2937; color: #f9fafb; z-index: 2;
     font-weight: 700; font-size: 16px;
-}}
-[data-testid="stDataFrame"] div[role="row"] {{ font-size: 15px; }}
-[data-testid="stDataFrame"] div[role="row"]:nth-child(even) {{ background-color: rgba(255,255,255,0.04); }}
+}
+[data-testid="stDataFrame"] div[role="row"] { font-size: 15px; }
+[data-testid="stDataFrame"] div[role="row"]:nth-child(even) { background-color: rgba(255,255,255,0.04); }
 </style>
-{header_img_css}
 """,
     unsafe_allow_html=True,
 )
+
+# =========================================================
+# Header (logo via st.image, no HTML <img> with local path)
+# =========================================================
+c_logo, c_title = st.columns([1, 6], gap="small")
+with c_logo:
+    if logo_path:
+        st.image(logo_path, width=64)
+with c_title:
+    st.markdown(
+        """
+<h1 style="color:#1E3A8A; font-weight:800; margin:0;">
+    قاعدة البيانات والتقارير المالية
+    <span style="font-size:20px; color:#4b5563;">| HGAD Company</span>
+</h1>
+""",
+        unsafe_allow_html=True,
+    )
+
+st.markdown(
+    '<hr style="border:0; height:2px; background:linear-gradient(to left, transparent, #1E3A8A, transparent);"/>',
+    unsafe_allow_html=True,
+)
+
 
 # =========================================================
 # Helpers & Hints
