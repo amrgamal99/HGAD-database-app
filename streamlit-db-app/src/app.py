@@ -8,10 +8,11 @@ from typing import Optional, Tuple
 
 import pandas as pd
 import streamlit as st
+from streamlit.components.v1 import html as st_html
 
 # PDF & Arabic
 from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 )
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -35,20 +36,15 @@ from components.filters import (
 BASE_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = BASE_DIR / "assets"
 
-# Your repo has logo_wide.jpg and logo.jpg
+# SQUARE site/logo (requested)
 SITE_LOGO_CANDIDATES = [
     ASSETS_DIR / "logo.png",
     ASSETS_DIR / "logo.jpg",
     ASSETS_DIR / "logo.jpeg",
     ASSETS_DIR / "logo.webp",
 ]
-REPORT_LOGO_CANDIDATES = [
-    ASSETS_DIR / "logo_wide.png",
-    ASSETS_DIR / "logo_wide.jpg",
-    ASSETS_DIR / "logo_wide.jpeg",
-    ASSETS_DIR / "logo_wide.webp",
-] + SITE_LOGO_CANDIDATES
 
+# Arabic fonts (best effort)
 AR_FONT_CANDIDATES = [
     ASSETS_DIR / "Cairo-Regular.ttf",
     ASSETS_DIR / "Amiri-Regular.ttf",
@@ -67,10 +63,6 @@ def _first_existing(paths) -> Optional[str]:
 
 def get_site_logo_path() -> Optional[str]:
     return _first_existing(SITE_LOGO_CANDIDATES)
-
-
-def get_report_logo_path() -> Optional[str]:
-    return _first_existing(REPORT_LOGO_CANDIDATES)
 
 
 def _first_existing_font_path() -> Optional[str]:
@@ -117,8 +109,7 @@ def _img_to_data_uri(path: str) -> str:
     return f"data:{mime};base64,{b64}"
 
 
-SITE_LOGO = get_site_logo_path()           # square (UI footer)
-REPORT_LOGO = get_report_logo_path()       # wide if available (PDF/Excel)
+SITE_LOGO = get_site_logo_path()  # square (UI bottom-left + PDF + Excel)
 
 # =========================================================
 # Streamlit Page Config
@@ -130,58 +121,62 @@ st.set_page_config(
 )
 
 # =========================================================
-# Global Styles (CSS) + Bottom-left fixed footer logo
-# (Injected safely; no raw/truncated HTML fragments)
+# Global Styles (CSS). No sidebar logo. No footer element.
+# We later inject a floating square logo (bottom-left) via st_html.
 # =========================================================
-footer_logo_html = ""
-if SITE_LOGO and Path(SITE_LOGO).exists():
-    data_uri = _img_to_data_uri(SITE_LOGO)
-    footer_logo_html = f"""
-    <div id="hgad-footer-logo"><img src="{data_uri}" alt="HGAD" loading="lazy" decoding="async"/></div>
-    <style>
-      #hgad-footer-logo {{
-        position: fixed; left: 16px; bottom: 14px; z-index: 9999; pointer-events: none;
-      }}
-      #hgad-footer-logo img {{
-        height: 48px; width: auto; opacity: 0.92; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,.2);
-      }}
-      @media print {{
-        #hgad-footer-logo {{ position: fixed; left: 16px; bottom: 14px; opacity: .95; }}
-      }}
-    </style>
-    """
-
 st.markdown(
-    f"""
+    """
 <style>
 /* Sidebar always open */
-[data-testid="stSidebar"] {{ transform:none !important; visibility:visible !important; width:340px !important; min-width:340px !important; }}
-[data-testid="stSidebar"][aria-expanded="false"] {{ transform:none !important; visibility:visible !important; }}
+[data-testid="stSidebar"] { transform:none !important; visibility:visible !important; width:340px !important; min-width:340px !important; }
+[data-testid="stSidebar"][aria-expanded="false"] { transform:none !important; visibility:visible !important; }
 [data-testid="collapsedControl"],
 button[kind="header"],
 button[title="Expand sidebar"],
 button[title="Collapse sidebar"],
-[data-testid="stSidebarCollapseButton"] {{ display:none !important; }}
+[data-testid="stSidebarCollapseButton"] { display:none !important; }
 
 /* RTL root */
-html, body {{
+html, body {
     direction: rtl !important; text-align: right !important;
     font-family: "Cairo","Noto Kufi Arabic","Segoe UI",Tahoma,sans-serif !important;
     white-space: normal !important; word-wrap: break-word !important; overflow-x: hidden !important;
-}}
+}
 
 /* DataFrame readability */
-[data-testid="stDataFrame"] thead tr th {{
+[data-testid="stDataFrame"] thead tr th {
     position: sticky; top: 0; background: #1f2937; color: #f9fafb; z-index: 2;
     font-weight: 700; font-size: 16px;
-}}
-[data-testid="stDataFrame"] div[role="row"] {{ font-size: 15px; }}
-[data-testid="stDataFrame"] div[role="row"]:nth-child(even) {{ background-color: rgba(255,255,255,0.04); }}
+}
+[data-testid="stDataFrame"] div[role="row"] { font-size: 15px; }
+[data-testid="stDataFrame"] div[role="row"]:nth-child(even) { background-color: rgba(255,255,255,0.04); }
 </style>
-{footer_logo_html}
 """,
     unsafe_allow_html=True,
 )
+
+# Inject square logo pinned to bottom-left (NOT sidebar, NOT a "footer" element)
+if SITE_LOGO and Path(SITE_LOGO).exists():
+    st_html(
+        f"""
+<div id="hgad-fixed-logo">
+  <img src="{_img_to_data_uri(SITE_LOGO)}" alt="HGAD" loading="lazy" decoding="async" />
+</div>
+<style>
+  #hgad-fixed-logo {{
+    position: fixed; left: 16px; bottom: 14px; z-index: 9999;
+    pointer-events: none; /* purely decorative */
+  }}
+  #hgad-fixed-logo img {{
+    height: 48px; width: auto; opacity: 0.95; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,.2);
+  }}
+  @media print {{
+    #hgad-fixed-logo {{ position: fixed; left: 16px; bottom: 14px; opacity: .98; }}
+  }}
+</style>
+""",
+        height=0,  # just inject
+    )
 
 # =========================================================
 # Header (title only)
@@ -217,7 +212,7 @@ def _pick_excel_engine() -> Optional[str]:
         return None
 
 # =========================================================
-# Excel (uses small, properly scaled logo; consistent startrow)
+# Excel (square logo, small, table clear)
 # =========================================================
 def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
     engine = _pick_excel_engine()
@@ -227,10 +222,8 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
     buf = BytesIO()
     df_x = df.copy()
     sheet = "البيانات"
-
-    # where table begins (header at startrow, data from startrow+1)
     startrow = 6
-    logo_path = REPORT_LOGO
+    logo_path = SITE_LOGO
     has_logo = bool(logo_path and Path(logo_path).exists())
 
     if engine == "xlsxwriter":
@@ -239,11 +232,11 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
             ws = wb.add_worksheet(sheet)
             writer.sheets[sheet] = ws
 
-            # Insert small wide logo in the top-left
+            # Insert square logo in the top-left
             if has_logo:
-                ws.insert_image("A1", logo_path, {"x_scale": 0.35, "y_scale": 0.35})
+                ws.insert_image("A1", logo_path, {"x_scale": 0.45, "y_scale": 0.45})
             else:
-                startrow = 2  # less top gap if no logo
+                startrow = 2
 
             # Formats
             hdr_fmt = wb.add_format({"align": "right", "bold": True})
@@ -259,7 +252,6 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
             # Body
             for idx, col in enumerate(df_x.columns):
                 series = df_x[col]
-                # width estimate
                 max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
                 width = min(max_len + 4, 60)
 
@@ -294,9 +286,8 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
                     ws.set_column(idx, idx, width, fmt_text)
 
     else:
-        # openpyxl path
+        # openpyxl fallback
         with pd.ExcelWriter(buf, engine=engine) as writer:
-            # create the sheet first
             df_x.head(0).to_excel(writer, index=False, sheet_name=sheet)
             ws = writer.book[sheet]
 
@@ -310,10 +301,7 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
             else:
                 startrow = 2
 
-            # now write the df beginning under the header row
             df_x.to_excel(writer, index=False, sheet_name=sheet, startrow=startrow + 1)
-
-            # write header row ourselves so it's always visible/clean
             for col_num, col_name in enumerate(df_x.columns, start=1):
                 ws.cell(row=startrow + 1, column=col_num, value=col_name)
 
@@ -325,7 +313,7 @@ def make_csv_utf8(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
 # =========================================================
-# PDF (wide logo → title → table)
+# PDF (square logo at bottom-left on every page)
 # =========================================================
 def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 120) -> bytes:
     buf = BytesIO()
@@ -334,8 +322,14 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 12
     link_label = "فتح الرابط" if arabic_ok else "Open link"
 
     page = landscape(A4)
+    left_margin, right_margin, top_margin, bottom_margin = 20, 20, 28, 28
     doc = SimpleDocTemplate(
-        buf, pagesize=page, rightMargin=20, leftMargin=20, topMargin=28, bottomMargin=20
+        buf,
+        pagesize=page,
+        rightMargin=right_margin,
+        leftMargin=left_margin,
+        topMargin=top_margin,
+        bottomMargin=bottom_margin,
     )
 
     # Styles
@@ -352,17 +346,6 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 12
         title_text = shape_arabic(title_text)
 
     elements = []
-
-    # small wide logo (centered)
-    if REPORT_LOGO and os.path.exists(REPORT_LOGO):
-        try:
-            img = RLImage(REPORT_LOGO, hAlign="CENTER")
-            img.drawHeight = 36
-            elements.append(img)
-            elements.append(Spacer(1, 6))
-        except Exception:
-            pass
-
     elements.append(Paragraph(title_text, title_style))
     elements.append(Spacer(1, 10))
 
@@ -390,7 +373,7 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 12
         rows.append(cells)
 
     # column widths
-    avail_w = page[0] - 20 - 20
+    avail_w = page[0] - left_margin - right_margin
     col_widths = []
     for idx, col in enumerate(df.columns):
         if idx in link_cols_idx:
@@ -427,7 +410,24 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 12
     table.setStyle(TableStyle(style_cmds))
     elements.append(table)
 
-    doc.build(elements)
+    # Draw square logo bottom-left on every page
+    site_logo_path = SITE_LOGO if (SITE_LOGO and Path(SITE_LOGO).exists()) else None
+
+    def _draw_logo(canvas, _doc):
+        if not site_logo_path:
+            return
+        try:
+            # Keep proportions; small height near margin
+            img_h = 18  # points
+            # width is calculated by keeping a square feel (safe)
+            img_w = img_h
+            x = left_margin
+            y = 8  # a little above the page edge
+            canvas.drawImage(site_logo_path, x, y, width=img_w, height=img_h, preserveAspectRatio=True, mask='auto')
+        except Exception:
+            pass
+
+    doc.build(elements, onFirstPage=_draw_logo, onLaterPages=_draw_logo)
     buf.seek(0)
     return buf.getvalue()
 
