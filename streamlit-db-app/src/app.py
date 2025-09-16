@@ -1,6 +1,7 @@
 # app.py
 import os
 import re
+import base64
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, Tuple
@@ -10,12 +11,7 @@ import streamlit as st
 
 # PDF & Arabic
 from reportlab.platypus import (
-    SimpleDocTemplate,
-    Table,
-    TableStyle,
-    Paragraph,
-    Spacer,
-    Image as RLImage,
+    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
 )
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -39,12 +35,19 @@ from components.filters import (
 BASE_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = BASE_DIR / "assets"
 
-LOGO_CANDIDATES = [
+SITE_LOGO_CANDIDATES = [
     ASSETS_DIR / "logo.png",
     ASSETS_DIR / "logo.jpg",
     ASSETS_DIR / "logo.jpeg",
     ASSETS_DIR / "logo.webp",
 ]
+REPORT_LOGO_CANDIDATES = [
+    ASSETS_DIR / "logo_wide.png",
+    ASSETS_DIR / "logo_wide.jpg",
+    ASSETS_DIR / "logo_wide.jpeg",
+    ASSETS_DIR / "logo_wide.webp",
+    # fallback to square if wide not present
+] + SITE_LOGO_CANDIDATES
 
 AR_FONT_CANDIDATES = [
     ASSETS_DIR / "Cairo-Regular.ttf",
@@ -52,26 +55,24 @@ AR_FONT_CANDIDATES = [
     Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
 ]
 
-_AR_RE = re.compile(r"[\u0600-\u06FF]")  # Arabic code range
+_AR_RE = re.compile(r"[\u0600-\u06FF]")  # Arabic block
 
-def get_logo_path() -> Optional[str]:
-    """Return an existing logo path as string (absolute), or None."""
-    for p in LOGO_CANDIDATES:
-        if p.exists():
+def _first_existing(paths) -> Optional[str]:
+    for p in paths:
+        if Path(p).exists():
             return str(p)
     return None
+
+def get_site_logo_path() -> Optional[str]:
+    return _first_existing(SITE_LOGO_CANDIDATES)
+
+def get_report_logo_path() -> Optional[str]:
+    return _first_existing(REPORT_LOGO_CANDIDATES)
 
 def _first_existing_font_path() -> Optional[str]:
-    for p in AR_FONT_CANDIDATES:
-        if p.exists():
-            return str(p)
-    return None
+    return _first_existing(AR_FONT_CANDIDATES)
 
 def register_arabic_font() -> Tuple[str, bool]:
-    """
-    Register an Arabic-capable font if available.
-    Returns (font_name, arabic_supported).
-    """
     p = _first_existing_font_path()
     if p:
         name = os.path.splitext(os.path.basename(p))[0]
@@ -92,25 +93,25 @@ def shape_arabic(s: str) -> str:
         return str(s)
 
 def _safe_filename(s: str) -> str:
-    """Windows-safe filename."""
     return (
         (s or "")
-        .replace("/", "-")
-        .replace("\\", "-")
-        .replace(":", "-")
-        .replace("*", "-")
-        .replace("?", "-")
-        .replace('"', "'")
-        .replace("<", "(")
-        .replace(">", ")")
-        .replace("|", "-")
+        .replace("/", "-").replace("\\", "-").replace(":", "-")
+        .replace("*", "-").replace("?", "-").replace('"', "'")
+        .replace("<", "(").replace(">", ")").replace("|", "-")
     )
 
-# Resolve once so Excel/PDF/Sidebar share the same path
-logo_path = get_logo_path()
+def _img_to_data_uri(path: str) -> str:
+    ext = Path(path).suffix.lower().lstrip(".") or "png"
+    mime = f"image/{'jpeg' if ext in ('jpg','jpeg') else ext}"
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+SITE_LOGO = get_site_logo_path()           # square (UI footer)
+REPORT_LOGO = get_report_logo_path()       # wide if available (PDF/Excel)
 
 # =========================================================
-# Streamlit Page Config (first Streamlit call)
+# Streamlit Page Config
 # =========================================================
 st.set_page_config(
     page_title="قاعدة البيانات والتقارير المالية | HGAD",
@@ -119,62 +120,71 @@ st.set_page_config(
 )
 
 # =========================================================
-# Global Styles (CSS)
+# Global Styles (CSS) + Bottom-left fixed footer logo
 # =========================================================
-st.markdown(
+footer_logo_html = ""
+if SITE_LOGO:
+    data_uri = _img_to_data_uri(SITE_LOGO)
+    # ~48px tall; fixed bottom-left; click does nothing (pure image)
+    footer_logo_html = f"""
+    <div id="hgad-footer-logo">
+        <img src="{data_uri}" alt="HGAD" />
+    </div>
+    <style>
+      #hgad-footer-logo {{
+        position: fixed; left: 16px; bottom: 14px;
+        z-index: 9999; pointer-events: none;   /* image as watermark */
+      }}
+      #hgad-footer-logo img {{
+        height: 48px; width: auto; opacity: 0.92; border-radius: 6px;
+        box-shadow: 0 2px 10px rgba(0,0,0,.2);
+      }}
+    </style>
     """
+
+st.markdown(
+    f"""
 <style>
 /* Sidebar always open */
-[data-testid="stSidebar"] { transform:none !important; visibility:visible !important; width:340px !important; min-width:340px !important; }
-[data-testid="stSidebar"][aria-expanded="false"] { transform:none !important; visibility:visible !important; }
+[data-testid="stSidebar"] {{ transform:none !important; visibility:visible !important; width:340px !important; min-width:340px !important; }}
+[data-testid="stSidebar"][aria-expanded="false"] {{ transform:none !important; visibility:visible !important; }}
 [data-testid="collapsedControl"],
 button[kind="header"],
 button[title="Expand sidebar"],
 button[title="Collapse sidebar"],
-[data-testid="stSidebarCollapseButton"] { display:none !important; }
+[data-testid="stSidebarCollapseButton"] {{ display:none !important; }}
 
 /* RTL root */
-html, body {
-    direction: rtl !important;
-    text-align: right !important;
+html, body {{
+    direction: rtl !important; text-align: right !important;
     font-family: "Cairo","Noto Kufi Arabic","Segoe UI",Tahoma,sans-serif !important;
-    white-space: normal !important;
-    word-wrap: break-word !important;
-    overflow-x: hidden !important;
-}
+    white-space: normal !important; word-wrap: break-word !important; overflow-x: hidden !important;
+}}
 
 /* DataFrame readability */
-[data-testid="stDataFrame"] thead tr th {
+[data-testid="stDataFrame"] thead tr th {{
     position: sticky; top: 0; background: #1f2937; color: #f9fafb; z-index: 2;
     font-weight: 700; font-size: 16px;
-}
-[data-testid="stDataFrame"] div[role="row"] { font-size: 15px; }
-[data-testid="stDataFrame"] div[role="row"]:nth-child(even) { background-color: rgba(255,255,255,0.04); }
+}}
+[data-testid="stDataFrame"] div[role="row"] {{ font-size: 15px; }}
+[data-testid="stDataFrame"] div[role="row"]:nth-child(even) {{ background-color: rgba(255,255,255,0.04); }}
 </style>
+{footer_logo_html}
 """,
     unsafe_allow_html=True,
 )
 
 # =========================================================
-# Header (logo via st.image, no HTML <img> with local path)
+# Header (no logo here; title only). Sidebar will also have no logo.
 # =========================================================
-c_logo, c_title = st.columns([1, 6], gap="small")
-with c_logo:
-    if logo_path:
-        st.image(logo_path, width=64)
-with c_title:
-    st.markdown(
-        """
-<h1 style="color:#1E3A8A; font-weight:800; margin:0;">
+st.markdown(
+    """
+<h1 style="color:#1E3A8A; font-weight:800; margin:0; text-align:center;">
     قاعدة البيانات والتقارير المالية
     <span style="font-size:20px; color:#4b5563;">| HGAD Company</span>
 </h1>
+<hr style="border:0; height:2px; background:linear-gradient(to left, transparent, #1E3A8A, transparent);"/>
 """,
-        unsafe_allow_html=True,
-    )
-
-st.markdown(
-    '<hr style="border:0; height:2px; background:linear-gradient(to left, transparent, #1E3A8A, transparent);"/>',
     unsafe_allow_html=True,
 )
 
@@ -182,10 +192,9 @@ st.markdown(
 # Helpers & Hints
 # =========================================================
 DATE_HINTS = ("تاريخ", "إصدار", "date")
-NUM_HINTS = ("قيمة", "المستحق", "شيك", "التحويل", "USD", ")USD")
+NUM_HINTS  = ("قيمة", "المستحق", "شيك", "التحويل", "USD", ")USD")
 
 def _pick_excel_engine() -> Optional[str]:
-    """Prefer xlsxwriter, fallback to openpyxl, else None."""
     try:
         import xlsxwriter  # noqa: F401
         return "xlsxwriter"
@@ -198,15 +207,9 @@ def _pick_excel_engine() -> Optional[str]:
         return None
 
 # =========================================================
-# Excel (with logo if available)
+# Excel (small wide logo at top, then table)
 # =========================================================
 def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
-    """
-    Create an XLSX file:
-      - If a logo is available, insert it at A1 and start table below.
-      - xlsxwriter path: rich formatting + clickable links.
-      - openpyxl path: basic write; inserts image if Pillow is available.
-    """
     engine = _pick_excel_engine()
     if engine is None:
         return None
@@ -214,21 +217,23 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
     buf = BytesIO()
     df_x = df.copy()
     sheet = "البيانات"
-    startrow = 1
+    startrow = 6  # smaller top gap than before
+
+    logo_path = REPORT_LOGO  # use wide logo if available
     has_logo = bool(logo_path)
 
     if engine == "xlsxwriter":
         with pd.ExcelWriter(buf, engine=engine) as writer:
-            # temporary write (we'll rewrite with formatting)
+            # write once to create the sheet
             df_x.to_excel(writer, index=False, sheet_name=sheet, startrow=1, header=False)
+            wb  = writer.book
+            ws  = writer.sheets[sheet]
 
-            wb = writer.book
-            ws = writer.sheets[sheet]
-
-            # Insert logo if available
             if has_logo:
-                ws.insert_image("A1", logo_path, {"x_scale": 0.5, "y_scale": 0.5})
-                startrow = 10  # space for logo
+                # Small scale for a neat header band
+                ws.insert_image("A1", logo_path, {"x_scale": 0.35, "y_scale": 0.35})
+            else:
+                startrow = 2  # minimal gap if no logo
 
             # Headers
             hdr_fmt = wb.add_format({"align": "right", "bold": True})
@@ -237,7 +242,7 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
 
             fmt_text = wb.add_format({"align": "right"})
             fmt_date = wb.add_format({"align": "right", "num_format": "yyyy-mm-dd"})
-            fmt_num = wb.add_format({"align": "right", "num_format": "#,##0.00"})
+            fmt_num  = wb.add_format({"align": "right", "num_format": "#,##0.00"})
             fmt_link = wb.add_format({"font_color": "blue", "underline": 1, "align": "right"})
 
             for idx, col in enumerate(df_x.columns):
@@ -269,26 +274,26 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
                         else:
                             ws.write_blank(row_num, idx, None, fmt_text)
                     ws.set_column(idx, idx, max(14, width), fmt_num)
-
                 else:
                     for row_num, val in enumerate(series, start=startrow):
                         ws.write(row_num, idx, "" if pd.isna(val) else str(val), fmt_text)
                     ws.set_column(idx, idx, width, fmt_text)
 
     else:
-        # openpyxl path
+        # openpyxl
         with pd.ExcelWriter(buf, engine=engine) as writer:
-            startrow = 1
             if has_logo:
                 try:
-                    from openpyxl.drawing.image import Image as XLImage  # requires Pillow
-                    # create sheet first
+                    from openpyxl.drawing.image import Image as XLImage  # Pillow
+                    # create sheet then add image
                     df_x.head(0).to_excel(writer, index=False, sheet_name=sheet)
                     ws = writer.book[sheet]
-                    ws.add_image(XLImage(logo_path), "A1")
-                    startrow = 10
+                    img = XLImage(logo_path)
+                    ws.add_image(img, "A1")  # openpyxl scales by pixels; this is reasonably small
                 except Exception:
                     pass
+            else:
+                startrow = 2
 
             df_x.to_excel(writer, index=False, sheet_name=sheet, startrow=startrow)
 
@@ -299,57 +304,27 @@ def make_csv_utf8(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
 # =========================================================
-# PDF (Arabic shaping + logo + title name)
+# PDF (wide logo → title → table; small logo)
 # =========================================================
 def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 120) -> bytes:
-    """
-    Build landscape A4 PDF mirroring on-screen table.
-    - Preserves column order
-    - Arabic shaping if font available
-    - Clickable links shown as 'فتح الرابط'
-    - Title includes (pdf_name)
-    - Adds logo above title if available
-    """
     buf = BytesIO()
 
     font_name, arabic_ok = register_arabic_font()
     link_label = "فتح الرابط" if arabic_ok else "Open link"
 
-    # Page/doc
     page = landscape(A4)
     doc = SimpleDocTemplate(
-        buf,
-        pagesize=page,
-        rightMargin=20,
-        leftMargin=20,
-        topMargin=30,
-        bottomMargin=20,
+        buf, pagesize=page, rightMargin=20, leftMargin=20, topMargin=28, bottomMargin=20
     )
 
     # Styles
-    title_style = ParagraphStyle(
-        name="Title", fontName=font_name, fontSize=16, leading=20, alignment=1
-    )  # CENTER
-    hdr_style = ParagraphStyle(
-        name="Hdr", fontName=font_name, fontSize=10, textColor=colors.whitesmoke, alignment=1
-    )
-    cell_rtl = ParagraphStyle(
-        name="CellR", fontName=font_name, fontSize=9, leading=12, alignment=2
-    )  # RIGHT
-    cell_ltr = ParagraphStyle(
-        name="CellL", fontName=font_name, fontSize=9, leading=12, alignment=0
-    )  # LEFT
-    cell_link = ParagraphStyle(
-        name="CellK",
-        fontName=font_name,
-        fontSize=9,
-        leading=12,
-        alignment=1,
-        textColor=colors.HexColor("#1E3A8A"),
-        underline=True,
-    )
+    title_style = ParagraphStyle(name="Title", fontName=font_name, fontSize=15, leading=18, alignment=1)
+    hdr_style   = ParagraphStyle(name="Hdr",   fontName=font_name, fontSize=10, textColor=colors.whitesmoke, alignment=1)
+    cell_rtl    = ParagraphStyle(name="CellR", fontName=font_name, fontSize=9, leading=12, alignment=2)
+    cell_ltr    = ParagraphStyle(name="CellL", fontName=font_name, fontSize=9, leading=12, alignment=0)
+    cell_link   = ParagraphStyle(name="CellK", fontName=font_name, fontSize=9, leading=12, alignment=1,
+                                 textColor=colors.HexColor("#1E3A8A"), underline=True)
 
-    # Title with pdf_name
     base_title = "قاعدة البيانات والتقارير المالية"
     title_text = f"{base_title} ({pdf_name})" if pdf_name else base_title
     if arabic_ok:
@@ -357,50 +332,43 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 12
 
     elements = []
 
-    # Logo on top if exists (centered)
-    if logo_path and os.path.exists(logo_path):
+    # --- Small wide logo first (centered), then title ---
+    if REPORT_LOGO and os.path.exists(REPORT_LOGO):
         try:
-            img = RLImage(logo_path, hAlign="CENTER")
-            img.drawHeight = 50  # scale by height; keep aspect ratio
+            img = RLImage(REPORT_LOGO, hAlign="CENTER")
+            img.drawHeight = 36  # smaller than before
             elements.append(img)
-            elements.append(Spacer(1, 8))
+            elements.append(Spacer(1, 6))
         except Exception:
             pass
 
     elements.append(Paragraph(title_text, title_style))
-    elements.append(Spacer(1, 12))
+    elements.append(Spacer(1, 10))
 
-    # Header row
+    # Headers
     header_paragraphs = []
     for col in df.columns:
         text = shape_arabic(col) if arabic_ok and looks_arabic(col) else str(col)
         header_paragraphs.append(Paragraph(text, hdr_style))
-
     rows = [header_paragraphs]
 
-    # Identify link columns
-    link_cols_idx = [
-        i for i, c in enumerate(df.columns) if ("رابط" in str(c)) or ("link" in str(c).lower())
-    ]
+    # Link columns
+    link_cols_idx = [i for i, c in enumerate(df.columns) if ("رابط" in str(c)) or ("link" in str(c).lower())]
 
-    # Body rows
+    # Body
     for _, row in df.iterrows():
         cells = []
         for i, col in enumerate(df.columns):
-            val = row[col]
-            sval = "" if pd.isna(val) else str(val)
-
+            sval = "" if pd.isna(row[col]) else str(row[col])
             if i in link_cols_idx and sval.startswith(("http://", "https://")):
                 label = shape_arabic(link_label) if arabic_ok else link_label
                 cells.append(Paragraph(f'<link href="{sval}">{label}</link>', cell_link))
             else:
-                if arabic_ok and looks_arabic(sval):
-                    cells.append(Paragraph(shape_arabic(sval), cell_rtl))
-                else:
-                    cells.append(Paragraph(sval, cell_ltr))
+                cells.append(Paragraph(shape_arabic(sval) if (arabic_ok and looks_arabic(sval)) else sval,
+                                       cell_rtl if (arabic_ok and looks_arabic(sval)) else cell_ltr))
         rows.append(cells)
 
-    # Column widths (use link label for link columns)
+    # Column widths
     avail_w = page[0] - doc.leftMargin - doc.rightMargin
     col_widths = []
     for idx, col in enumerate(df.columns):
@@ -408,9 +376,7 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 12
             max_len = max(len(str(col)), len(link_label))
         else:
             max_len = max(len(str(col)), df[col].astype(str).map(len).max())
-        width = min(max_len * 7, max_col_width)  # ~7 px/char
-        col_widths.append(width)
-
+        col_widths.append(min(max_len * 7, max_col_width))
     total_w = sum(col_widths)
     if total_w > avail_w and total_w > 0:
         scale = avail_w / total_w
@@ -426,7 +392,6 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 12
         ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
         ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
     ]
-    # per-column alignment
     for idx, col in enumerate(df.columns):
         if any(h in str(col) for h in DATE_HINTS):
             align = "CENTER"
@@ -454,10 +419,8 @@ def main() -> None:
         st.error("فشل الاتصال بقاعدة البيانات. يرجى مراجعة بيانات الاتصال والتأكد من تشغيل الخادم.")
         return
 
-    # Sidebar
     with st.sidebar:
-        if logo_path:
-            st.image(logo_path, use_container_width=True)
+        # no logo in sidebar
         st.title("عوامل التصفية")
         company_name = create_company_dropdown(conn)
         project_name = create_project_dropdown(conn, company_name)
@@ -467,13 +430,11 @@ def main() -> None:
         st.info("برجاء اختيار الشركة والمشروع ونوع البيانات من الشريط الجانبي لعرض النتائج.")
         return
 
-    # Fetch data
     df = fetch_data(conn, company_name, project_name, target_table)
     if df.empty:
         st.warning("لا توجد بيانات مطابقة للاختيارات المحددة.")
         return
 
-    # Column search
     search_column, search_term = create_column_search(df)
     if search_column and search_term:
         df = df[df[search_column].astype(str).str.contains(str(search_term), case=False, na=False)]
@@ -481,7 +442,6 @@ def main() -> None:
             st.info("لا توجد نتائج بعد تطبيق معيار البحث.")
             return
 
-    # Clickable links in table
     column_config = {}
     for col in df.columns:
         if "رابط" in col:
@@ -491,7 +451,6 @@ def main() -> None:
     st.dataframe(df, column_config=column_config, use_container_width=True, hide_index=True)
 
     # Downloads
-    # Excel
     xlsx_bytes = make_excel_bytes(df)
     if xlsx_bytes is not None:
         st.download_button(
@@ -503,8 +462,7 @@ def main() -> None:
     else:
         st.info("لتمكين تنزيل Excel مع شعار وروابط قابلة للنقر، أضف إلى requirements: `xlsxwriter` أو `openpyxl`.")
 
-    # CSV
-    csv_bytes = make_csv_utf8(df)
+    csv_bytes = df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
     st.download_button(
         label="تنزيل كـ CSV (UTF-8)",
         data=csv_bytes,
@@ -512,7 +470,6 @@ def main() -> None:
         mime="text/csv",
     )
 
-    # PDF
     pdf_title = _safe_filename(f"{target_table}_{company_name}_{project_name}")
     pdf_bytes = make_pdf_bytes(df, pdf_name=pdf_title)
     st.download_button(
