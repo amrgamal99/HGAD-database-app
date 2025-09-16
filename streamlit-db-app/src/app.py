@@ -8,28 +8,6 @@ from typing import Optional, Tuple
 
 import pandas as pd
 import streamlit as st
-from streamlit.components.v1 import html as st_html
-
-# PDF & Arabic
-from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
-)
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-import arabic_reshaper
-from bidi.algorithm import get_display
-# app.py
-import os
-import re
-from io import BytesIO
-from pathlib import Path
-from typing import Optional, Tuple
-
-import pandas as pd
-import streamlit as st
 
 # PDF & Arabic
 from reportlab.platypus import (
@@ -48,13 +26,6 @@ from reportlab.pdfbase.ttfonts import TTFont
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-from db.connection import get_db_connection, fetch_data
-from components.filters import (
-    create_company_dropdown,
-    create_project_dropdown,
-    create_type_dropdown,
-    create_column_search,
-)
 # Optional: Pillow for precise image sizing
 try:
     from PIL import Image as PILImage
@@ -75,7 +46,7 @@ from components.filters import (
 BASE_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = BASE_DIR / "assets"
 
-# -- Square/top-right logo (exact file requested)
+# -- Square logo (exact file requested)
 SITE_LOGO_PREFERRED = ASSETS_DIR / "logo.png"
 
 # -- Wide logo for Excel/PDF
@@ -141,22 +112,30 @@ def shape_arabic(s: str) -> str:
 def _safe_filename(s: str) -> str:
     return (
         (s or "")
-        .replace("/", "-").replace("\\", "-").replace(":", "-")
-        .replace("*", "-").replace("?", "-").replace('"', "'")
-        .replace("<", "(").replace(">", ")").replace("|", "-")
+        .replace("/", "-")
+        .replace("\\", "-")
+        .replace(":", "-")
+        .replace("*", "-")
+        .replace("?", "-")
+        .replace('"', "'")
+        .replace("<", "(")
+        .replace(">", ")")
+        .replace("|", "-")
     )
 
 
 def _img_to_data_uri(path: str) -> str:
     ext = Path(path).suffix.lower().lstrip(".") or "png"
-    mime = f"image/{{'jpeg' if ext in ('jpg','jpeg') else ext}}"
+    mime = f"image/{'jpeg' if ext in ('jpg','jpeg') else ext}"
     with open(path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode("ascii")
     return f"data:{mime};base64,{b64}"
 
 
-SITE_LOGO = get_site_logo_path()     # exact logo.png (UI header, behind title)
-WIDE_LOGO = get_wide_logo_path()     # wide logo for Excel + PDF
+SITE_LOGO = get_site_logo_path()  # exact logo.png (UI header, behind title if you style it)
+WIDE_LOGO = get_wide_logo_path()  # wide logo for Excel + PDF
+
+
 def _image_size(path: str) -> Tuple[int, int]:
     if PILImage:
         try:
@@ -213,7 +192,7 @@ html, body {
 )
 
 # =========================================================
-# Header (logo via st.image, no HTML <img> with local path)
+# Header (logo via st.image)
 # =========================================================
 c_logo, c_title = st.columns([1, 6], gap="small")
 with c_logo:
@@ -235,12 +214,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 # =========================================================
 # Helpers & Hints
 # =========================================================
 DATE_HINTS = ("تاريخ", "إصدار", "date")
-NUM_HINTS  = ("قيمة", "المستحق", "شيك", "التحويل", "USD", ")USD")
+NUM_HINTS = ("قيمة", "المستحق", "شيك", "التحويل", "USD", ")USD")
 
 
 def _pick_excel_engine() -> Optional[str]:
@@ -255,6 +233,7 @@ def _pick_excel_engine() -> Optional[str]:
     except Exception:
         return None
 
+
 # =========================================================
 # Excel (wide logo spans from first to last column using actual widths)
 # =========================================================
@@ -264,6 +243,7 @@ def _char_width_to_pixels(width_chars: float) -> int:
     Approximation used by XlsxWriter: pixels ≈ trunc(7 * width + 5).
     """
     return int(width_chars * 7 + 5)
+
 
 def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
     engine = _pick_excel_engine()
@@ -275,7 +255,6 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
     sheet = "البيانات"
 
     wide_logo = WIDE_LOGO
-    ncols = len(df_x.columns)
 
     if engine == "xlsxwriter":
         with pd.ExcelWriter(buf, engine=engine) as writer:
@@ -287,20 +266,17 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
             hdr_fmt = wb.add_format({"align": "right", "bold": True})
             fmt_text = wb.add_format({"align": "right"})
             fmt_date = wb.add_format({"align": "right", "num_format": "yyyy-mm-dd"})
-            fmt_num  = wb.add_format({"align": "right", "num_format": "#,##0.00"})
+            fmt_num = wb.add_format({"align": "right", "num_format": "#,##0.00"})
             fmt_link = wb.add_format({"font_color": "blue", "underline": 1, "align": "right"})
 
-            # ---- Decide & set column widths first (so we know the span) ----
-            # Keep a list of final character widths for all columns
+            # Set column widths first to compute span
             char_widths = []
             for idx, col in enumerate(df_x.columns):
                 series = df_x[col]
-                # rough width calculation
                 max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
                 width_chars = min(max_len + 4, 60)
                 char_widths.append(width_chars)
 
-                # set temporary width; we’ll keep it
                 if pd.api.types.is_datetime64_any_dtype(series):
                     ws.set_column(idx, idx, max(14, width_chars), fmt_date)
                 elif pd.api.types.is_numeric_dtype(series):
@@ -310,7 +286,7 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
                 else:
                     ws.set_column(idx, idx, width_chars, fmt_text)
 
-            # ---- Insert the wide logo scaled to sum of column pixel widths ----
+            # Insert the wide logo scaled to sum of column pixel widths
             header_row = 0
             if wide_logo and Path(wide_logo).exists():
                 img_w, img_h = _image_size(wide_logo)
@@ -319,20 +295,21 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
                 y_scale = x_scale  # keep aspect ratio
 
                 ws.insert_image(
-                    header_row, 0, wide_logo,
+                    header_row,
+                    0,
+                    wide_logo,
                     {
                         "x_scale": x_scale,
                         "y_scale": y_scale,
                         "object_position": 1,  # move/resize with cells
                     },
                 )
-                # Convert scaled image height to rows (≈20 px per default row)
                 approx_row_height_px = 20
                 header_row = int((img_h * y_scale) / approx_row_height_px) + 1
             else:
                 header_row = 2
 
-            # ---- Write headers & body under the image ----
+            # Headers & body
             for col_num, col_name in enumerate(df_x.columns):
                 ws.write(header_row, col_num, col_name, hdr_fmt)
 
@@ -345,47 +322,44 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
                             ws.write_url(r, idx, sval, fmt_link, string="فتح الرابط")
                         else:
                             ws.write(r, idx, sval, fmt_text)
-
                 elif pd.api.types.is_datetime64_any_dtype(series):
                     for r, val in enumerate(series, start=header_row + 1):
                         if pd.notna(val):
                             ws.write_datetime(r, idx, pd.to_datetime(val), fmt_date)
                         else:
                             ws.write_blank(r, idx, None, fmt_text)
-
                 elif pd.api.types.is_numeric_dtype(series):
                     for r, val in enumerate(series, start=header_row + 1):
                         if pd.notna(val):
                             ws.write_number(r, idx, float(val), fmt_num)
                         else:
                             ws.write_blank(r, idx, None, fmt_text)
-
                 else:
                     for r, val in enumerate(series, start=header_row + 1):
                         ws.write(r, idx, "" if pd.isna(val) else str(val), fmt_text)
 
     else:
-        # openpyxl: keep previous behavior; set image width to span columns
+        # openpyxl
         with pd.ExcelWriter(buf, engine=engine) as writer:
-            df_x.head(0).to_excel(writer, index=False, sheet_name=sheet)
-            ws = writer.book[sheet]
+            df_x.head(0).to_excel(writer, index=False, sheet_name="البيانات")
+            ws = writer.book["البيانات"]
 
             header_row = 2
             if wide_logo and Path(wide_logo).exists():
                 try:
                     from openpyxl.drawing.image import Image as XLImage
-                    img = XLImage(wide_logo)
 
-                    # estimate character widths like above before writing
+                    # estimate widths similar to XlsxWriter branch
                     char_widths = []
                     for idx, col in enumerate(df_x.columns):
                         series = df_x[col]
                         max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
                         width_chars = min(max_len + 4, 60)
                         char_widths.append(width_chars)
-                        ws.column_dimensions[chr(ord('A') + idx)].width = width_chars
+                        ws.column_dimensions[chr(ord("A") + idx)].width = width_chars
 
                     total_pixels = sum(_char_width_to_pixels(w) for w in char_widths)
+                    img = XLImage(wide_logo)
                     img_w, img_h = _image_size(wide_logo)
                     if img_w:
                         scale = total_pixels / float(img_w)
@@ -397,15 +371,16 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
                 except Exception:
                     pass
 
-            df_x.to_excel(writer, index=False, sheet_name=sheet, startrow=header_row)
+            df_x.to_excel(writer, index=False, sheet_name="البيانات", startrow=header_row)
 
     buf.seek(0)
     return buf.getvalue()
 
+
 def make_csv_utf8(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
-# =========================================================
+
 # =========================================================
 # PDF (wide logo spanning table width)
 # =========================================================
@@ -427,12 +402,27 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 12
     )
 
     # Styles
-    title_style = ParagraphStyle(name="Title", fontName=font_name, fontSize=15, leading=18, alignment=1)
-    hdr_style   = ParagraphStyle(name="Hdr",   fontName=font_name, fontSize=10, textColor=colors.whitesmoke, alignment=1)
-    cell_rtl    = ParagraphStyle(name="CellR", fontName=font_name, fontSize=9, leading=12, alignment=2)
-    cell_ltr    = ParagraphStyle(name="CellL", fontName=font_name, fontSize=9, leading=12, alignment=0)
-    cell_link   = ParagraphStyle(name="CellK", fontName=font_name, fontSize=9, leading=12, alignment=1,
-                                 textColor=colors.HexColor("#1E3A8A"), underline=True)
+    title_style = ParagraphStyle(
+        name="Title", fontName=font_name, fontSize=15, leading=18, alignment=1
+    )
+    hdr_style = ParagraphStyle(
+        name="Hdr", fontName=font_name, fontSize=10, textColor=colors.whitesmoke, alignment=1
+    )
+    cell_rtl = ParagraphStyle(
+        name="CellR", fontName=font_name, fontSize=9, leading=12, alignment=2
+    )
+    cell_ltr = ParagraphStyle(
+        name="CellL", fontName=font_name, fontSize=9, leading=12, alignment=0
+    )
+    cell_link = ParagraphStyle(
+        name="CellK",
+        fontName=font_name,
+        fontSize=9,
+        leading=12,
+        alignment=1,
+        textColor=colors.HexColor("#1E3A8A"),
+        underline=True,
+    )
 
     base_title = "قاعدة البيانات والتقارير المالية"
     title_text = f"{base_title} ({pdf_name})" if pdf_name else base_title
@@ -441,7 +431,7 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 12
 
     elements = []
 
-    # === Wide logo above the title, spanning available width ===
+    # Wide logo above the title, spanning available width
     avail_w = page[0] - left_margin - right_margin
     if WIDE_LOGO and Path(WIDE_LOGO).exists():
         try:
