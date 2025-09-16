@@ -579,7 +579,7 @@ def main() -> None:
     pdf_title = _safe_filename(f"{target_table}_{company_name}_{project_name}")
     pdf_bytes = make_pdf_bytes(df, pdf_name=pdf_title)
     st.download_button(
-        label="تنزيل كـ PDF (عربي)",
+        label="تنزيل كـ PDF ",
         data=pdf_bytes,
         file_name=f"{pdf_title}.pdf",
         mime="application/pdf",
