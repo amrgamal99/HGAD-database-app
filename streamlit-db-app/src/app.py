@@ -157,6 +157,14 @@ def _img_to_data_uri(path: str) -> str:
 
 SITE_LOGO = get_site_logo_path()     # exact logo.png (UI header, behind title)
 WIDE_LOGO = get_wide_logo_path()     # wide logo for Excel + PDF
+def _image_size(path: str) -> Tuple[int, int]:
+    if PILImage:
+        try:
+            with PILImage.open(path) as im:
+                return im.size  # (w,h) px
+        except Exception:
+            pass
+    return (600, 120)
 
 # =========================================================
 # Streamlit Page Config
@@ -247,20 +255,16 @@ def _pick_excel_engine() -> Optional[str]:
     except Exception:
         return None
 
-
-def _image_size(path: str) -> Tuple[int, int]:
-    """Return (width_px, height_px) if possible; otherwise (600, 120)."""
-    if PILImage:
-        try:
-            with PILImage.open(path) as im:
-                return im.size  # (w, h)
-        except Exception:
-            pass
-    return (600, 120)
-
 # =========================================================
-# Excel (wide logo spanning table width)
+# Excel (wide logo spans from first to last column using actual widths)
 # =========================================================
+def _char_width_to_pixels(width_chars: float) -> int:
+    """
+    Convert Excel column width (in characters) to pixels.
+    Approximation used by XlsxWriter: pixels ≈ trunc(7 * width + 5).
+    """
+    return int(width_chars * 7 + 5)
+
 def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
     engine = _pick_excel_engine()
     if engine is None:
@@ -279,29 +283,6 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
             ws = wb.add_worksheet(sheet)
             writer.sheets[sheet] = ws
 
-            # === Insert wide logo sized from first to last column ===
-            start_row = 0
-            start_col = 0
-            default_col_px = 64  # xlsxwriter approx px per default col width
-            target_px = max(ncols, 1) * default_col_px
-
-            if wide_logo and Path(wide_logo).exists():
-                img_w, img_h = _image_size(wide_logo)
-                x_scale = target_px / float(img_w) if img_w else 1.0
-                y_scale = x_scale  # keep aspect ratio
-
-                ws.insert_image(
-                    start_row, start_col, wide_logo,
-                    {
-                        "x_scale": x_scale,
-                        "y_scale": y_scale,
-                        "object_position": 1,  # move with cells
-                    },
-                )
-                header_row = start_row + max(int((img_h * y_scale) // 20), 2)
-            else:
-                header_row = 2
-
             # Formats
             hdr_fmt = wb.add_format({"align": "right", "bold": True})
             fmt_text = wb.add_format({"align": "right"})
@@ -309,48 +290,82 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
             fmt_num  = wb.add_format({"align": "right", "num_format": "#,##0.00"})
             fmt_link = wb.add_format({"font_color": "blue", "underline": 1, "align": "right"})
 
-            # Column headers
+            # ---- Decide & set column widths first (so we know the span) ----
+            # Keep a list of final character widths for all columns
+            char_widths = []
+            for idx, col in enumerate(df_x.columns):
+                series = df_x[col]
+                # rough width calculation
+                max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
+                width_chars = min(max_len + 4, 60)
+                char_widths.append(width_chars)
+
+                # set temporary width; we’ll keep it
+                if pd.api.types.is_datetime64_any_dtype(series):
+                    ws.set_column(idx, idx, max(14, width_chars), fmt_date)
+                elif pd.api.types.is_numeric_dtype(series):
+                    ws.set_column(idx, idx, max(14, width_chars), fmt_num)
+                elif "رابط" in col:
+                    ws.set_column(idx, idx, max(20, width_chars), fmt_link)
+                else:
+                    ws.set_column(idx, idx, width_chars, fmt_text)
+
+            # ---- Insert the wide logo scaled to sum of column pixel widths ----
+            header_row = 0
+            if wide_logo and Path(wide_logo).exists():
+                img_w, img_h = _image_size(wide_logo)
+                total_pixels = sum(_char_width_to_pixels(w) for w in char_widths)
+                x_scale = (total_pixels / float(img_w)) if img_w else 1.0
+                y_scale = x_scale  # keep aspect ratio
+
+                ws.insert_image(
+                    header_row, 0, wide_logo,
+                    {
+                        "x_scale": x_scale,
+                        "y_scale": y_scale,
+                        "object_position": 1,  # move/resize with cells
+                    },
+                )
+                # Convert scaled image height to rows (≈20 px per default row)
+                approx_row_height_px = 20
+                header_row = int((img_h * y_scale) / approx_row_height_px) + 1
+            else:
+                header_row = 2
+
+            # ---- Write headers & body under the image ----
             for col_num, col_name in enumerate(df_x.columns):
                 ws.write(header_row, col_num, col_name, hdr_fmt)
 
-            # Body
             for idx, col in enumerate(df_x.columns):
                 series = df_x[col]
-                max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
-                width = min(max_len + 4, 60)
-
                 if "رابط" in col:
-                    for row_num, val in enumerate(series, start=header_row + 1):
+                    for r, val in enumerate(series, start=header_row + 1):
                         sval = "" if pd.isna(val) else str(val)
                         if sval.startswith(("http://", "https://")):
-                            ws.write_url(row_num, idx, sval, fmt_link, string="فتح الرابط")
+                            ws.write_url(r, idx, sval, fmt_link, string="فتح الرابط")
                         else:
-                            ws.write(row_num, idx, sval, fmt_text)
-                    ws.set_column(idx, idx, max(20, width), fmt_link)
+                            ws.write(r, idx, sval, fmt_text)
 
                 elif pd.api.types.is_datetime64_any_dtype(series):
-                    for row_num, val in enumerate(series, start=header_row + 1):
+                    for r, val in enumerate(series, start=header_row + 1):
                         if pd.notna(val):
-                            ws.write_datetime(row_num, idx, pd.to_datetime(val), fmt_date)
+                            ws.write_datetime(r, idx, pd.to_datetime(val), fmt_date)
                         else:
-                            ws.write_blank(row_num, idx, None, fmt_text)
-                    ws.set_column(idx, idx, max(14, width), fmt_date)
+                            ws.write_blank(r, idx, None, fmt_text)
 
                 elif pd.api.types.is_numeric_dtype(series):
-                    for row_num, val in enumerate(series, start=header_row + 1):
+                    for r, val in enumerate(series, start=header_row + 1):
                         if pd.notna(val):
-                            ws.write_number(row_num, idx, float(val), fmt_num)
+                            ws.write_number(r, idx, float(val), fmt_num)
                         else:
-                            ws.write_blank(row_num, idx, None, fmt_text)
-                    ws.set_column(idx, idx, max(14, width), fmt_num)
+                            ws.write_blank(r, idx, None, fmt_text)
 
                 else:
-                    for row_num, val in enumerate(series, start=header_row + 1):
-                        ws.write(row_num, idx, "" if pd.isna(val) else str(val), fmt_text)
-                    ws.set_column(idx, idx, width, fmt_text)
+                    for r, val in enumerate(series, start=header_row + 1):
+                        ws.write(r, idx, "" if pd.isna(val) else str(val), fmt_text)
 
     else:
-        # openpyxl
+        # openpyxl: keep previous behavior; set image width to span columns
         with pd.ExcelWriter(buf, engine=engine) as writer:
             df_x.head(0).to_excel(writer, index=False, sheet_name=sheet)
             ws = writer.book[sheet]
@@ -361,11 +376,19 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
                     from openpyxl.drawing.image import Image as XLImage
                     img = XLImage(wide_logo)
 
-                    # compute target width across all columns (~64 px/col heuristic)
-                    target_px = max(ncols, 1) * 64
+                    # estimate character widths like above before writing
+                    char_widths = []
+                    for idx, col in enumerate(df_x.columns):
+                        series = df_x[col]
+                        max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
+                        width_chars = min(max_len + 4, 60)
+                        char_widths.append(width_chars)
+                        ws.column_dimensions[chr(ord('A') + idx)].width = width_chars
+
+                    total_pixels = sum(_char_width_to_pixels(w) for w in char_widths)
                     img_w, img_h = _image_size(wide_logo)
                     if img_w:
-                        scale = target_px / float(img_w)
+                        scale = total_pixels / float(img_w)
                         img.width = int(img_w * scale)
                         img.height = int(img_h * scale)
 
@@ -379,10 +402,10 @@ def make_excel_bytes(df: pd.DataFrame) -> Optional[bytes]:
     buf.seek(0)
     return buf.getvalue()
 
-
 def make_csv_utf8(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
+# =========================================================
 # =========================================================
 # PDF (wide logo spanning table width)
 # =========================================================
