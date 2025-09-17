@@ -86,16 +86,6 @@ def _image_size(path: Path) -> Tuple[int, int]:
     return (600, 120)
 
 
-def _img_to_data_uri(path: Path) -> Optional[str]:
-    try:
-        ext = path.suffix.lower().lstrip(".") or "png"
-        mime = f"image/{'jpeg' if ext in ('jpg','jpeg') else ext}"
-        b64 = base64.b64encode(path.read_bytes()).decode("ascii")
-        return f"data:{mime};base64,{b64}"
-    except Exception:
-        return None
-
-
 def _site_logo_path() -> Optional[Path]:
     return _first_existing(LOGO_CANDIDATES)
 
@@ -211,7 +201,7 @@ html, body {
     border: 1px solid #334155; padding: 10px; font-size: 14px;
     white-space: normal; word-wrap: break-word;
 }
-/* VALUE narrower (left), LABEL wider (right) */
+/* ↓ Make VALUE narrower, give Arabic LABEL more room */
 .fin-table td.value { background:#111827; color:#e5e7eb; font-weight:800; text-align:center; width: 32%; }
 .fin-table td.label { background:#0b1220; color:#e5e7eb; font-weight:700; text-align:right; width: 68%; }
 
@@ -250,7 +240,7 @@ with c_title:
 st.markdown('<hr style="border:0; height:2px; background:linear-gradient(to left, transparent, #1E3A8A, transparent);"/>', unsafe_allow_html=True)
 
 # =========================================================
-# Excel helpers (with WIDE LOGO)
+# Excel helpers
 # =========================================================
 def _pick_excel_engine() -> Optional[str]:
     try:
@@ -265,37 +255,13 @@ def _pick_excel_engine() -> Optional[str]:
         return None
 
 
-def _insert_wide_logo(ws, workbook, start_row: int = 0, col: int = 0) -> int:
-    """
-    Insert the wide logo (if exists) into the worksheet using xlsxwriter.
-    Returns the next empty row after the image (to start writing the table).
-    """
-    wlp = _wide_logo_path()
-    if not wlp:
-        return start_row
-    try:
-        # Reasonable scaling to keep it slim
-        options = {"x_scale": 0.6, "y_scale": 0.6}
-        ws.insert_image(start_row, col, str(wlp), options)
-        return start_row + 6  # leave some space below the logo
-    except Exception:
-        return start_row
-
-
-def _auto_excel_sheet(writer, df: pd.DataFrame, sheet_name: str, put_logo: bool = True):
+def _auto_excel_sheet(writer, df: pd.DataFrame, sheet_name: str):
     engine = writer.engine
     df_x = df.copy()
-    safe_name = (sheet_name or "Sheet1")[:31]
-
     if engine == "xlsxwriter":
         wb = writer.book
-        ws = wb.add_worksheet(safe_name)
-        writer.sheets[safe_name] = ws
-
-        # Optional logo
-        row0 = 0
-        if put_logo:
-            row0 = _insert_wide_logo(ws, wb, start_row=0, col=0)
+        ws = wb.add_worksheet(sheet_name[:31] or "Sheet1")
+        writer.sheets[sheet_name[:31] or "Sheet1"] = ws
 
         hdr_fmt = wb.add_format({"align": "right", "bold": True})
         fmt_text = wb.add_format({"align": "right"})
@@ -303,7 +269,6 @@ def _auto_excel_sheet(writer, df: pd.DataFrame, sheet_name: str, put_logo: bool 
         fmt_num  = wb.add_format({"align": "right", "num_format": "#,##0.00"})
         fmt_link = wb.add_format({"font_color": "blue", "underline": 1, "align": "right"})
 
-        # Auto widths
         for idx, col in enumerate(df_x.columns):
             series = df_x[col]
             max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
@@ -317,64 +282,62 @@ def _auto_excel_sheet(writer, df: pd.DataFrame, sheet_name: str, put_logo: bool 
             else:
                 ws.set_column(idx, idx, width_chars, fmt_text)
 
-        # Header row
+        header_row = 0
         for col_num, col_name in enumerate(df_x.columns):
-            ws.write(row0, col_num, col_name, hdr_fmt)
+            ws.write(header_row, col_num, col_name, hdr_fmt)
 
-        # Body
         for idx, col in enumerate(df_x.columns):
             series = df_x[col]
             if "رابط" in str(col):
-                for r, val in enumerate(series, start=row0 + 1):
+                for r, val in enumerate(series, start=header_row + 1):
                     sval = "" if pd.isna(val) else str(val)
                     if sval.startswith(("http://", "https://")):
                         ws.write_url(r, idx, sval, fmt_link, string="فتح الرابط")
                     else:
                         ws.write(r, idx, sval, fmt_text)
             elif pd.api.types.is_datetime64_any_dtype(series):
-                for r, val in enumerate(series, start=row0 + 1):
+                for r, val in enumerate(series, start=header_row + 1):
                     if pd.notna(val):
                         ws.write_datetime(r, idx, pd.to_datetime(val), fmt_date)
                     else:
                         ws.write_blank(r, idx, None, fmt_text)
             elif pd.api.types.is_numeric_dtype(series):
-                for r, val in enumerate(series, start=row0 + 1):
+                for r, val in enumerate(series, start=header_row + 1):
                     if pd.notna(val):
                         ws.write_number(r, idx, float(val), fmt_num)
                     else:
                         ws.write_blank(r, idx, None, fmt_text)
             else:
-                for r, val in enumerate(series, start=row0 + 1):
+                for r, val in enumerate(series, start=header_row + 1):
                     ws.write(r, idx, "" if pd.isna(val) else str(val), fmt_text)
     else:
-        # openpyxl fallback (no image support here)
-        df_x.to_excel(writer, index=False, sheet_name=safe_name)
+        df_x.to_excel(writer, index=False, sheet_name=sheet_name[:31] or "Sheet1")
 
 
-def make_excel_bytes(df: pd.DataFrame, sheet_name: str = "البيانات", put_logo: bool = True) -> Optional[bytes]:
+def make_excel_bytes(df: pd.DataFrame, sheet_name: str = "البيانات") -> Optional[bytes]:
     engine = _pick_excel_engine()
     if engine is None:
         return None
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine=engine) as writer:
-        _auto_excel_sheet(writer, df, sheet_name, put_logo=put_logo)
+        _auto_excel_sheet(writer, df, sheet_name)
     buf.seek(0)
     return buf.getvalue()
 
 
-def make_excel_combined_two_sheets(dfs: Dict[str, pd.DataFrame], put_logo: bool = True) -> Optional[bytes]:
+def make_excel_combined_two_sheets(dfs: Dict[str, pd.DataFrame]) -> Optional[bytes]:
     engine = _pick_excel_engine()
     if engine is None:
         return None
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine=engine) as writer:
         for sheet, df in dfs.items():
-            _auto_excel_sheet(writer, df, sheet, put_logo=put_logo)
+            _auto_excel_sheet(writer, df, sheet)
     buf.seek(0)
     return buf.getvalue()
 
 
-def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], sheet_name="تقرير_موحد", put_logo: bool = True) -> Optional[bytes]:
+def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], sheet_name="تقرير_موحد") -> Optional[bytes]:
     engine = _pick_excel_engine()
     if engine is None:
         return None
@@ -394,11 +357,8 @@ def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], sheet_name="ت
             fmt_link = wb.add_format({"font_color": "blue", "underline": 1, "align": "right"})
 
             row_offset = 0
-            if put_logo:
-                row_offset = _insert_wide_logo(ws, wb, start_row=row_offset, col=0)
-
             for title, df in dfs.items():
-                # Title
+                # Title row
                 ws.write(row_offset, 0, title, title_fmt)
                 row_offset += 1
 
@@ -438,15 +398,8 @@ def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], sheet_name="ت
                     ws.set_column(c_idx, c_idx, min(max_len + 4, 60))
                 row_offset += 2
         else:
-            # Fallback: concat with separators
             out = []
-            first = True
             for title, df in dfs.items():
-                if first and put_logo and _wide_logo_path():
-                    # openpyxl fallback can't embed image; just write a title marker
-                    logo_note = pd.DataFrame([[f"[LOGO: {_wide_logo_path().name}]"] + [""] * (len(df.columns) - 1)], columns=df.columns)
-                    out.append(logo_note)
-                    first = False
                 title_row = pd.DataFrame([[title] + [""] * (len(df.columns) - 1)], columns=df.columns)
                 out.append(title_row)
                 out.append(df)
@@ -491,6 +444,10 @@ def _pdf_table(
     font_size: float = 7.0,
     avail_width: Optional[float] = None
 ) -> list:
+    """
+    Smaller fonts + capped col widths, minimal paddings, and
+    automatic scale-to-page if total width exceeds avail_width.
+    """
     font_name, _ = register_arabic_font()
     hdr_style = ParagraphStyle(
         name="Hdr", fontName=font_name, fontSize=font_size+0.6,
@@ -523,11 +480,13 @@ def _pdf_table(
             cells.append(Paragraph(shape_arabic(sval) if is_ar else sval, cell_rtl if is_ar else cell_ltr))
         rows.append(cells)
 
+    # initial col widths in points (≈ 6.2 pt per char heuristic)
     col_widths = []
     for c in df.columns:
         max_len = max(len(str(c)), df[c].astype(str).map(len).max())
         col_widths.append(min(max_len * 6.2, max_col_width))
 
+    # If too wide, scale all columns proportionally to fit avail_width
     if avail_width:
         total = sum(col_widths)
         if total > avail_width:
@@ -554,6 +513,7 @@ def _pdf_table(
 
 
 def _choose_pdf_font(df: pd.DataFrame) -> Tuple[int, float]:
+    """Return (max_col_width, font_size) depending on number of columns."""
     n = len(df.columns)
     if n >= 12:
         return 110, 6.6
@@ -567,7 +527,7 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "") -> bytes:
     font_name, arabic_ok = register_arabic_font()
 
     page = landscape(A4)
-    left, right, top, bottom = 14, 14, 18, 14
+    left, right, top, bottom = 14, 14, 18, 14  # tighter margins
     doc = SimpleDocTemplate(
         buf, pagesize=page, rightMargin=right, leftMargin=left,
         topMargin=top, bottomMargin=bottom
@@ -672,8 +632,9 @@ def make_pdf_combined(summary_df: pd.DataFrame, flow_df: pd.DataFrame, header_te
 # =========================================================
 def fin_panel_two_tables(left_items: List[Tuple[str, str]], right_items: List[Tuple[str, str]]):
     """
-    Render two side-by-side tables with reversed cells:
-    [ value | label ]  -> label (Arabic) on the RIGHT, value on the LEFT.
+    Render two side-by-side tables.
+    We show: [ value | label ] -> label on RIGHT (wider), value on LEFT (narrower).
+    Each item is (label, value).
     """
     def _table_html(items):
         rows = []
@@ -809,9 +770,9 @@ def main() -> None:
         else:
             st.info("لا توجد حقول قابلة للعرض في ملخص العقد.")
 
-        # Downloads (summary only) — with wide logo in Excel
+        # Downloads (summary only)
         df_summary_out = df_summary.copy()
-        xlsx_sum = make_excel_bytes(df_summary_out, sheet_name="ملخص", put_logo=True)
+        xlsx_sum = make_excel_bytes(df_summary_out, sheet_name="ملخص")
         if xlsx_sum:
             st.download_button(
                 label="تنزيل الملخص كـ Excel",
@@ -847,8 +808,8 @@ def main() -> None:
         df_flow_display = df_flow.drop(columns=["companyid", "contractid"], errors="ignore")
         st.dataframe(df_flow_display, use_container_width=True, hide_index=True)
 
-        # Individual downloads (EXCEL + wide logo)
-        xlsx_flow = make_excel_bytes(df_flow_display, sheet_name="دفتر_التدفق", put_logo=True)
+        # Individual downloads
+        xlsx_flow = make_excel_bytes(df_flow_display, sheet_name="دفتر_التدفق")
         if xlsx_flow:
             st.download_button(
                 label="تنزيل الدفتر كـ Excel",
@@ -871,12 +832,12 @@ def main() -> None:
             mime="application/pdf",
         )
 
-        # Combined downloads (Excel: both with wide logo at top)
+        # Combined downloads
         st.markdown("### تنزيل تقرير موحّد")
         excel_two_sheets = make_excel_combined_two_sheets({
             "ملخص": df_summary_out,
             "دفتر_التدفق": df_flow_display,
-        }, put_logo=True)
+        })
         if excel_two_sheets:
             st.download_button(
                 label="Excel موحّد (ورقتان: ملخص + دفتر)",
@@ -888,7 +849,7 @@ def main() -> None:
         excel_one_sheet = make_excel_single_sheet_stacked({
             "ملخص": df_summary_out,
             "دفتر_التدفق": df_flow_display,
-        }, sheet_name="تقرير_موحد", put_logo=True)
+        }, sheet_name="تقرير_موحد")
         if excel_one_sheet:
             st.download_button(
                 label="Excel موحّد (ورقة واحدة)",
@@ -937,7 +898,7 @@ def main() -> None:
     st.markdown('<h3 class="hsec">البيانات</h3>', unsafe_allow_html=True)
     st.dataframe(df, column_config=column_config, use_container_width=True, hide_index=True)
 
-    xlsx_bytes = make_excel_bytes(df, sheet_name="البيانات", put_logo=True)
+    xlsx_bytes = make_excel_bytes(df)
     if xlsx_bytes is not None:
         st.download_button(
             label="تنزيل كـ Excel (XLSX) – مُوصى به",
