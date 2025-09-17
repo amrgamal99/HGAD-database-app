@@ -4,7 +4,7 @@ import re
 import base64
 from io import BytesIO
 from pathlib import Path
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, List
 
 import pandas as pd
 import streamlit as st
@@ -84,16 +84,6 @@ def _image_size(path: Path) -> Tuple[int, int]:
         except Exception:
             pass
     return (600, 120)
-
-
-def _img_to_data_uri(path: Path) -> Optional[str]:
-    try:
-        ext = path.suffix.lower().lstrip(".") or "png"
-        mime = f"image/{'jpeg' if ext in ('jpg','jpeg') else ext}"
-        b64 = base64.b64encode(path.read_bytes()).decode("ascii")
-        return f"data:{mime};base64,{b64}"
-    except Exception:
-        return None
 
 
 def _site_logo_path() -> Optional[Path]:
@@ -208,9 +198,9 @@ html, body {
 .fin-panel { display:grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 10px; }
 .fin-table { width:100%; border-collapse: collapse; }
 .fin-table th, .fin-table td {
-    border: 1px solid #334155; padding: 12px; font-size: 15px;
+    border: 1px solid #334155; padding: 10px; font-size: 14px;
 }
-.fin-table td.value { background:#111827; color:#e5e7eb; font-weight:800; text-align:center; width: 42%; }
+.fin-table td.value { background:#111827; color:#e5e7eb; font-weight:800; text-align:center; width: 45%; }
 .fin-table td.label { background:#0b1220; color:#e5e7eb; font-weight:700; text-align:right; }
 
 /* Section title */
@@ -248,7 +238,7 @@ with c_title:
 st.markdown('<hr style="border:0; height:2px; background:linear-gradient(to left, transparent, #1E3A8A, transparent);"/>', unsafe_allow_html=True)
 
 # =========================================================
-# Excel helpers (✓ also for combined)
+# Excel helpers
 # =========================================================
 def _pick_excel_engine() -> Optional[str]:
     try:
@@ -268,8 +258,8 @@ def _auto_excel_sheet(writer, df: pd.DataFrame, sheet_name: str):
     df_x = df.copy()
     if engine == "xlsxwriter":
         wb = writer.book
-        ws = wb.add_worksheet(sheet_name)
-        writer.sheets[sheet_name] = ws
+        ws = wb.add_worksheet(sheet_name[:31] or "Sheet1")
+        writer.sheets[sheet_name[:31] or "Sheet1"] = ws
 
         hdr_fmt = wb.add_format({"align": "right", "bold": True})
         fmt_text = wb.add_format({"align": "right"})
@@ -285,7 +275,7 @@ def _auto_excel_sheet(writer, df: pd.DataFrame, sheet_name: str):
                 ws.set_column(idx, idx, max(14, width_chars), fmt_date)
             elif pd.api.types.is_numeric_dtype(series):
                 ws.set_column(idx, idx, max(14, width_chars), fmt_num)
-            elif "رابط" in col:
+            elif "رابط" in str(col):
                 ws.set_column(idx, idx, max(20, width_chars), fmt_link)
             else:
                 ws.set_column(idx, idx, width_chars, fmt_text)
@@ -296,7 +286,7 @@ def _auto_excel_sheet(writer, df: pd.DataFrame, sheet_name: str):
 
         for idx, col in enumerate(df_x.columns):
             series = df_x[col]
-            if "رابط" in col:
+            if "رابط" in str(col):
                 for r, val in enumerate(series, start=header_row + 1):
                     sval = "" if pd.isna(val) else str(val)
                     if sval.startswith(("http://", "https://")):
@@ -319,7 +309,7 @@ def _auto_excel_sheet(writer, df: pd.DataFrame, sheet_name: str):
                 for r, val in enumerate(series, start=header_row + 1):
                     ws.write(r, idx, "" if pd.isna(val) else str(val), fmt_text)
     else:
-        df_x.to_excel(writer, index=False, sheet_name=sheet_name)
+        df_x.to_excel(writer, index=False, sheet_name=sheet_name[:31] or "Sheet1")
 
 
 def make_excel_bytes(df: pd.DataFrame, sheet_name: str = "البيانات") -> Optional[bytes]:
@@ -333,7 +323,8 @@ def make_excel_bytes(df: pd.DataFrame, sheet_name: str = "البيانات") -> 
     return buf.getvalue()
 
 
-def make_excel_combined(dfs: Dict[str, pd.DataFrame]) -> Optional[bytes]:
+def make_excel_combined_two_sheets(dfs: Dict[str, pd.DataFrame]) -> Optional[bytes]:
+    """Each df in a separate sheet."""
     engine = _pick_excel_engine()
     if engine is None:
         return None
@@ -345,12 +336,92 @@ def make_excel_combined(dfs: Dict[str, pd.DataFrame]) -> Optional[bytes]:
     return buf.getvalue()
 
 
+def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], sheet_name="تقرير_موحد") -> Optional[bytes]:
+    """
+    Put multiple dataframes into ONE sheet:
+    Title row -> table -> blank row -> next title -> next table ...
+    """
+    engine = _pick_excel_engine()
+    if engine is None:
+        return None
+
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine=engine) as writer:
+        # For openpyxl/xlsxwriter, we'll write manually by offsets (xlsxwriter path)
+        if writer.engine == "xlsxwriter":
+            wb = writer.book
+            ws = wb.add_worksheet(sheet_name[:31])
+            writer.sheets[sheet_name[:31]] = ws
+
+            title_fmt = wb.add_format({"bold": True, "align": "right", "font_size": 12})
+            hdr_fmt = wb.add_format({"align": "right", "bold": True})
+            fmt_text = wb.add_format({"align": "right"})
+            fmt_date = wb.add_format({"align": "right", "num_format": "yyyy-mm-dd"})
+            fmt_num  = wb.add_format({"align": "right", "num_format": "#,##0.00"})
+            fmt_link = wb.add_format({"font_color": "blue", "underline": 1, "align": "right"})
+
+            row_offset = 0
+            for title, df in dfs.items():
+                # Title row
+                ws.write(row_offset, 0, title, title_fmt)
+                row_offset += 1
+
+                # Headers
+                for c_idx, col in enumerate(df.columns):
+                    ws.write(row_offset, c_idx, col, hdr_fmt)
+                row_offset += 1
+
+                # Body
+                for r in range(len(df)):
+                    for c_idx, col in enumerate(df.columns):
+                        val = df.iloc[r, c_idx]
+                        if "رابط" in str(col):
+                            sval = "" if pd.isna(val) else str(val)
+                            if sval.startswith(("http://", "https://")):
+                                ws.write_url(row_offset, c_idx, sval, fmt_link, string="فتح الرابط")
+                            else:
+                                ws.write(row_offset, c_idx, sval, fmt_text)
+                        elif pd.api.types.is_datetime64_any_dtype(df[col]):
+                            if pd.notna(val):
+                                ws.write_datetime(row_offset, c_idx, pd.to_datetime(val), fmt_date)
+                            else:
+                                ws.write_blank(row_offset, c_idx, None, fmt_text)
+                        elif pd.api.types.is_numeric_dtype(df[col]):
+                            if pd.notna(val):
+                                ws.write_number(row_offset, c_idx, float(val), fmt_num)
+                            else:
+                                ws.write_blank(row_offset, c_idx, None, fmt_text)
+                        else:
+                            ws.write(row_offset, c_idx, "" if pd.isna(val) else str(val), fmt_text)
+                    row_offset += 1
+
+                # Auto width
+                for c_idx, col in enumerate(df.columns):
+                    series = df[col]
+                    max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
+                    ws.set_column(c_idx, c_idx, min(max_len + 4, 60))
+                row_offset += 2  # blank rows between sections
+        else:
+            # Fallback: concat with title separators
+            out = []
+            for title, df in dfs.items():
+                title_row = pd.DataFrame([[title] + [""] * (len(df.columns) - 1)], columns=df.columns)
+                out.append(title_row)
+                out.append(df)
+                out.append(pd.DataFrame([[""] * len(df.columns)], columns=df.columns))
+            big = pd.concat(out, ignore_index=True)
+            big.to_excel(writer, index=False, sheet_name=sheet_name[:31])
+
+    buf.seek(0)
+    return buf.getvalue()
+
+
 def make_csv_utf8(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
 
 # =========================================================
-# PDF helpers (clearer tables)
+# PDF helpers (zoomed out but clear)
 # =========================================================
 def _format_numbers_for_display(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
@@ -371,16 +442,19 @@ def _format_numbers_for_display(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _pdf_table(df: pd.DataFrame, title: str = "", max_col_width: int = 180, font_size: float = 8.5) -> list:
+def _pdf_table(df: pd.DataFrame, title: str = "", max_col_width: int = 130, font_size: float = 7.5) -> list:
+    """
+    Smaller fonts + capped col widths to show more columns (zoomed out but readable).
+    """
     font_name, _ = register_arabic_font()
-    hdr_style = ParagraphStyle(name="Hdr", fontName=font_name, fontSize=font_size+1, textColor=colors.whitesmoke, alignment=1, leading=font_size+3)
-    cell_rtl  = ParagraphStyle(name="CellR", fontName=font_name, fontSize=font_size, leading=font_size+2, alignment=2, wordWrap='CJK')
-    cell_ltr  = ParagraphStyle(name="CellL", fontName=font_name, fontSize=font_size, leading=font_size+2, alignment=0, wordWrap='CJK')
+    hdr_style = ParagraphStyle(name="Hdr", fontName=font_name, fontSize=font_size+0.7, textColor=colors.whitesmoke, alignment=1, leading=font_size+2)
+    cell_rtl  = ParagraphStyle(name="CellR", fontName=font_name, fontSize=font_size, leading=font_size+1.5, alignment=2, wordWrap='CJK')
+    cell_ltr  = ParagraphStyle(name="CellL", fontName=font_name, fontSize=font_size, leading=font_size+1.5, alignment=0, wordWrap='CJK')
 
     blocks = []
     if title:
-        tstyle = ParagraphStyle(name="Sec", fontName=font_name, fontSize=font_size+3, alignment=2, textColor=colors.HexColor("#1E3A8A"))
-        blocks += [Paragraph(shape_arabic(title), tstyle), Spacer(1, 6)]
+        tstyle = ParagraphStyle(name="Sec", fontName=font_name, fontSize=font_size+2, alignment=2, textColor=colors.HexColor("#1E3A8A"))
+        blocks += [Paragraph(shape_arabic(title), tstyle), Spacer(1, 4)]
 
     headers = [Paragraph(shape_arabic(c) if looks_arabic(c) else str(c), hdr_style) for c in df.columns]
     rows = [headers]
@@ -395,7 +469,7 @@ def _pdf_table(df: pd.DataFrame, title: str = "", max_col_width: int = 180, font
     col_widths = []
     for c in df.columns:
         max_len = max(len(str(c)), df[c].astype(str).map(len).max())
-        col_widths.append(min(max_len * 7.5, max_col_width))
+        col_widths.append(min(max_len * 6.5, max_col_width))
 
     table = Table(rows, repeatRows=1, colWidths=col_widths)
     table.setStyle(TableStyle([
@@ -404,7 +478,7 @@ def _pdf_table(df: pd.DataFrame, title: str = "", max_col_width: int = 180, font
         ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1E3A8A")),
         ("TEXTCOLOR", (0,0), (-1,0), colors.whitesmoke),
-        ("BOTTOMPADDING", (0,0), (-1,0), 6),
+        ("BOTTOMPADDING", (0,0), (-1,0), 4),
         ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
         ("WORDWRAP", (0,0), (-1,-1), True),
     ]))
@@ -412,15 +486,16 @@ def _pdf_table(df: pd.DataFrame, title: str = "", max_col_width: int = 180, font
     return blocks
 
 
-def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 180) -> bytes:
+def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 130, base_font: float = 7.5) -> bytes:
     buf = BytesIO()
     font_name, arabic_ok = register_arabic_font()
 
+    # Landscape A4, tighter margins
     page = landscape(A4)
-    left, right, top, bottom = 20, 20, 28, 20
+    left, right, top, bottom = 16, 16, 20, 16
     doc = SimpleDocTemplate(buf, pagesize=page, rightMargin=right, leftMargin=left, topMargin=top, bottomMargin=bottom)
 
-    title_style = ParagraphStyle(name="Title", fontName=font_name, fontSize=15, leading=18, alignment=1)
+    title_style = ParagraphStyle(name="Title", fontName=font_name, fontSize=14, leading=16, alignment=1)
     base_title = "التقرير المالي"
     title_text = f"{base_title} ({pdf_name})" if pdf_name else base_title
     if arabic_ok:
@@ -434,20 +509,20 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 18
             if PILImage:
                 w_px, h_px = _image_size(wlp)
                 ratio = h_px / float(w_px) if w_px else 0.2
-                img_h = max(28, avail_w * ratio)
+                img_h = max(24, avail_w * ratio * 0.6)
             else:
-                img_h = 50
+                img_h = 40
             logo_img = RLImage(str(wlp), hAlign="CENTER")
             logo_img.drawWidth = avail_w
             logo_img.drawHeight = img_h
             elements.append(logo_img)
-            elements.append(Spacer(1, 6))
+            elements.append(Spacer(1, 4))
         except Exception:
             pass
 
     elements.append(Paragraph(title_text, title_style))
-    elements.append(Spacer(1, 8))
-    elements += _pdf_table(df, max_col_width=max_col_width)
+    elements.append(Spacer(1, 6))
+    elements += _pdf_table(df, max_col_width=max_col_width, font_size=base_font)
     doc.build(elements)
     buf.seek(0)
     return buf.getvalue()
@@ -458,11 +533,11 @@ def make_pdf_combined(summary_df: pd.DataFrame, flow_df: pd.DataFrame, header_te
     font_name, arabic_ok = register_arabic_font()
 
     page = landscape(A4)
-    left, right, top, bottom = 20, 20, 28, 20
+    left, right, top, bottom = 16, 16, 20, 16
     doc = SimpleDocTemplate(buf, pagesize=page, rightMargin=right, leftMargin=left, topMargin=top, bottomMargin=bottom)
 
-    title_style = ParagraphStyle(name="Title", fontName=font_name, fontSize=16, leading=20, alignment=1)
-    head_style  = ParagraphStyle(name="Head",  fontName=font_name, fontSize=13, leading=16, alignment=2, textColor=colors.HexColor("#1E3A8A"))
+    title_style = ParagraphStyle(name="Title", fontName=font_name, fontSize=14, leading=16, alignment=1)
+    head_style  = ParagraphStyle(name="Head",  fontName=font_name, fontSize=11, leading=14, alignment=2, textColor=colors.HexColor("#1E3A8A"))
 
     base_title = "التقرير المالي"
     if arabic_ok:
@@ -477,26 +552,26 @@ def make_pdf_combined(summary_df: pd.DataFrame, flow_df: pd.DataFrame, header_te
             if PILImage:
                 w_px, h_px = _image_size(wlp)
                 ratio = h_px / float(w_px) if w_px else 0.2
-                img_h = max(28, avail_w * ratio)
+                img_h = max(24, avail_w * ratio * 0.6)
             else:
-                img_h = 50
+                img_h = 40
             logo_img = RLImage(str(wlp), hAlign="CENTER")
             logo_img.drawWidth = avail_w
             logo_img.drawHeight = img_h
             elements.append(logo_img)
-            elements.append(Spacer(1, 6))
+            elements.append(Spacer(1, 4))
         except Exception:
             pass
 
     elements.append(Paragraph(base_title, title_style))
     if header_text:
-        elements.append(Spacer(1, 6))
+        elements.append(Spacer(1, 4))
         elements.append(Paragraph(header_text, head_style))
-    elements.append(Spacer(1, 8))
+    elements.append(Spacer(1, 6))
 
-    elements += _pdf_table(summary_df, title="ملخص المشروع", max_col_width=180)
+    elements += _pdf_table(summary_df, title="ملخص المشروع", max_col_width=130, font_size=7.5)
     elements.append(PageBreak())
-    elements += _pdf_table(flow_df, title="دفتر التدفق", max_col_width=180)
+    elements += _pdf_table(flow_df, title="دفتر التدفق", max_col_width=130, font_size=7.5)
     doc.build(elements)
     buf.seek(0)
     return buf.getvalue()
@@ -505,9 +580,12 @@ def make_pdf_combined(summary_df: pd.DataFrame, flow_df: pd.DataFrame, header_te
 # =========================================================
 # Helpers
 # =========================================================
-def fin_panel_two_tables(left_items, right_items):
-    """Render two side-by-side financial tables (Arabic RTL).
-       Each item is (label, value). We render: [value | label] (value left, label right)."""
+def fin_panel_two_tables(left_items: List[Tuple[str, str]], right_items: List[Tuple[str, str]]):
+    """
+    Render two side-by-side tables.
+    We show: [ value | label ] so that label is on the RIGHT and value on the LEFT (your requirement).
+    Each item is (label, value).
+    """
     def _table_html(items):
         rows = []
         for label, value in items:
@@ -519,10 +597,6 @@ def fin_panel_two_tables(left_items, right_items):
 
 
 def _apply_date_filter(df: pd.DataFrame, dfrom, dto) -> pd.DataFrame:
-    """
-    Filter df by any Arabic/English date-like columns if present.
-    Safe no-op if columns are missing.
-    """
     if df is None or df.empty or (not dfrom and not dto):
         return df
     date_cols = [c for c in df.columns if any(k in str(c) for k in ["تاريخ", "إصدار", "date", "تعاقد"])]
@@ -539,6 +613,45 @@ def _apply_date_filter(df: pd.DataFrame, dfrom, dto) -> pd.DataFrame:
         except Exception:
             pass
     return out
+
+
+def _fmt_value(v) -> str:
+    try:
+        if isinstance(v, str) and v.strip().endswith("%"):
+            return v
+        f = float(str(v).replace(",", ""))
+        return f"{f:,.2f}"
+    except Exception:
+        return "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v)
+
+
+def _row_to_pairs_from_data(row: pd.Series) -> List[Tuple[str, str]]:
+    """
+    Build (label,value) pairs DIRECTLY from df_summary row.
+    Removes technical columns and empties.
+    """
+    ignore_substrings = {"id", "ID", "companyid", "contractid"}
+    pairs = []
+    for col, val in row.items():
+        if any(k in str(col).lower() for k in ignore_substrings):
+            continue
+        sval = _fmt_value(val)
+        if sval == "" or sval.lower() == "nan":
+            continue
+        pairs.append((str(col), sval))
+    return pairs
+
+
+def _split_pairs_two_columns(pairs: List[Tuple[str, str]]) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
+    """
+    Split list into two roughly equal halves for right/left tables.
+    Right table is shown first (visually right column).
+    """
+    n = len(pairs)
+    mid = (n + 1) // 2
+    right = pairs[:mid]
+    left = pairs[mid:]
+    return left, right
 
 
 # =========================================================
@@ -576,14 +689,13 @@ def main() -> None:
     # Financial Report Mode
     # =======================
     if type_key == "financial_report":
-        # Summary (single row)
+        # Summary (single row, ALL from data)
         df_summary = fetch_contract_summary_view(conn, company_name, project_name)
         if df_summary.empty:
             st.warning("لم يتم العثور على ملخص العقد لهذا المشروع.")
             return
-        row = df_summary.iloc[0].to_dict()
+        row = df_summary.iloc[0]
 
-        # Big header
         header_company = company_name or "—"
         header_project = project_name or "—"
         header_date = str(row.get("تاريخ التعاقد", "—"))
@@ -603,34 +715,15 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
-        # Two-column financial panel ONLY (no KPI cards)
-        def _fmt(v):
-            try:
-                if isinstance(v, str) and v.strip().endswith("%"):
-                    return v
-                f = float(str(v).replace(",", ""))
-                return f"{f:,.2f}"
-            except Exception:
-                return str(v)
-
-        right_items = [
-            ("تاريخ التعاقد", header_date),
-            ("قيمة التعاقد", _fmt(row.get("قيمة التعاقد", 0))),
-            ("حجم الأعمال المنفذة", _fmt(row.get("حجم الاعمال المنفذة", 0))),
-            ("نسبة الأعمال المنفذة", _fmt(row.get("نسبة الاعمال المنفذة", "0%"))),
-            ("الدفعة المقدمة", _fmt(row.get("الدفعه المقدمه", 0))),
-            ("إجمالي التحصيلات", _fmt(row.get("التحصيلات", 0))),
-        ]
-        left_items = [
-            ("مواد أولية", _fmt(row.get("حجم الاعمال المنفذة", 0))),
-            ("مصروفات غير مباشرة", _fmt(0)),
-            ("مصروفات تشغيلية", _fmt(0)),
-            ("إجمالي المصروفات", _fmt(row.get("حجم الاعمال المنفذة", 0))),
-            ("الحد الائتماني", _fmt(row.get("قيمة التعاقد", 0))),
-            ("المستحق صرفه", _fmt(row.get("المستحق صرفه", 0))),
-        ]
-        st.markdown('<h3 class="hsec">ملخص المشروع</h3>', unsafe_allow_html=True)
-        fin_panel_two_tables(left_items=left_items, right_items=right_items)
+        # Build pairs DIRECTLY from df_summary row (no fabricated fields)
+        summary_pairs = _row_to_pairs_from_data(row)
+        if not summary_pairs:
+            st.info("لا توجد حقول قابلة للعرض في ملخص العقد.")
+        else:
+            # Split pairs into two tables (label on RIGHT, value on LEFT)
+            left_items, right_items = _split_pairs_two_columns(summary_pairs)
+            st.markdown('<h3 class="hsec">ملخص المشروع</h3>', unsafe_allow_html=True)
+            fin_panel_two_tables(left_items=left_items, right_items=right_items)
 
         # Downloads (summary only)
         df_summary_out = df_summary.copy()
@@ -645,7 +738,7 @@ def main() -> None:
         pdf_sum = make_pdf_bytes(_format_numbers_for_display(df_summary_out),
                                  pdf_name=_safe_filename(f"ملخص_{company_name}_{project_name}"))
         st.download_button(
-            label="تنزيل الملخص كـ PDF",
+            label="تنزيل الملخص كـ PDF (مُصغّر واضح)",
             data=pdf_sum,
             file_name=_safe_filename(f"ملخص_{company_name}_{project_name}.pdf"),
             mime="application/pdf",
@@ -691,7 +784,7 @@ def main() -> None:
         pdf_flow = make_pdf_bytes(_format_numbers_for_display(df_flow_display),
                                   pdf_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}"))
         st.download_button(
-            label="تنزيل الدفتر كـ PDF",
+            label="تنزيل الدفتر كـ PDF (مُصغّر واضح)",
             data=pdf_flow,
             file_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}.pdf"),
             mime="application/pdf",
@@ -699,15 +792,27 @@ def main() -> None:
 
         # Combined downloads
         st.markdown("### تنزيل تقرير موحّد")
-        excel_all = make_excel_combined({
+        excel_two_sheets = make_excel_combined_two_sheets({
             "ملخص": df_summary_out,
             "دفتر_التدفق": df_flow_display,
         })
-        if excel_all:
+        if excel_two_sheets:
             st.download_button(
-                label="تنزيل التقرير المالي (Excel واحد)",
-                data=excel_all,
-                file_name=_safe_filename(f"تقرير_مالي_{company_name}_{project_name}.xlsx"),
+                label="Excel موحّد (ورقتان: ملخص + دفتر)",
+                data=excel_two_sheets,
+                file_name=_safe_filename(f"تقرير_مالي_{company_name}_{project_name}_ورقتين.xlsx"),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+        excel_one_sheet = make_excel_single_sheet_stacked({
+            "ملخص": df_summary_out,
+            "دفتر_التدفق": df_flow_display,
+        }, sheet_name="تقرير_موحد")
+        if excel_one_sheet:
+            st.download_button(
+                label="Excel موحّد (ورقة واحدة)",
+                data=excel_one_sheet,
+                file_name=_safe_filename(f"تقرير_مالي_{company_name}_{project_name}_ورقة_واحدة.xlsx"),
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
@@ -718,7 +823,7 @@ def main() -> None:
             header_text=header_line,
         )
         st.download_button(
-            label="تنزيل التقرير المالي (PDF واحد)",
+            label="PDF موحّد (ملخص + دفتر) – مُصغّر واضح",
             data=pdf_all,
             file_name=_safe_filename(f"تقرير_مالي_{company_name}_{project_name}.pdf"),
             mime="application/pdf",
@@ -745,7 +850,7 @@ def main() -> None:
 
     column_config = {}
     for col in df.columns:
-        if "رابط" in col:
+        if "رابط" in str(col):
             column_config[col] = st.column_config.LinkColumn(label=col, display_text="فتح الرابط")
 
     st.markdown('<h3 class="hsec">البيانات</h3>', unsafe_allow_html=True)
@@ -771,7 +876,7 @@ def main() -> None:
     pdf_title = _safe_filename(f"{type_key}_{company_name}_{project_name}")
     pdf_bytes = make_pdf_bytes(_format_numbers_for_display(df), pdf_name=pdf_title)
     st.download_button(
-        label="تنزيل كـ PDF",
+        label="تنزيل كـ PDF (مُصغّر واضح)",
         data=pdf_bytes,
         file_name=f"{pdf_title}.pdf",
         mime="application/pdf",
