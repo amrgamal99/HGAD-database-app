@@ -1,3 +1,44 @@
+from pathlib import Path
+import sys
+
+# Ensure /src, /src/db, /src/components are on PYTHONPATH
+_FILE_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_FILE_DIR))
+sys.path.insert(0, str(_FILE_DIR / "db"))
+sys.path.insert(0, str(_FILE_DIR / "components"))
+
+# Fallback-friendly imports
+try:
+    from db.connection import (
+        get_db_connection,
+        fetch_data,
+        fetch_financial_flow_view,
+        fetch_contract_summary_view,
+    )
+except ImportError:
+    from connection import (  # type: ignore
+        get_db_connection,
+        fetch_data,
+        fetch_financial_flow_view,
+        fetch_contract_summary_view,
+    )
+
+try:
+    from components.filters import (
+        create_company_dropdown,
+        create_project_dropdown,
+        create_type_dropdown,
+        create_column_search,
+        create_date_range,
+    )
+except ImportError:
+    from filters import (  # type: ignore
+        create_company_dropdown,
+        create_project_dropdown,
+        create_type_dropdown,
+        create_column_search,
+        create_date_range,
+    )
 # app.py
 import os
 import re
