@@ -195,18 +195,16 @@ html, body {
 [data-testid="stDateInput"] label { color:#cbd5e1 !important; font-weight:700; }
 .stPopover, div[role="dialog"] { z-index: 99999 !important; }
 
-/* Financial header */
+/* Header */
 .fin-head {
     display:flex; justify-content: space-between; align-items:center;
     border: 1px dashed #1e3a8a55; border-radius: 14px;
-    padding: 14px 18px; margin-bottom: 10px; background: #0b1220;
+    padding: 14px 18px; margin: 6px 0 12px 0; background: #0b1220;
 }
-.fin-head .line {
-    font-size: 24px; font-weight: 900; color: #e5e7eb;
-}
+.fin-head .line { font-size: 24px; font-weight: 900; color: #e5e7eb; }
 .badge { display:inline-block; background:#1e3a8a; color:white; font-weight:700; padding:6px 12px; border-radius:999px; }
 
-/* === Two-column financial panel (RTL) === */
+/* Two-column financial panel (RTL) */
 .fin-panel { display:grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 10px; }
 .fin-table { width:100%; border-collapse: collapse; }
 .fin-table th, .fin-table td {
@@ -215,7 +213,7 @@ html, body {
 .fin-table td.value { background:#111827; color:#e5e7eb; font-weight:800; text-align:center; width: 42%; }
 .fin-table td.label { background:#0b1220; color:#e5e7eb; font-weight:700; text-align:right; }
 
-/* Section titles */
+/* Section title */
 .hsec { color:#1E3A8A; font-weight:800; margin:0.2rem 0 0.6rem 0; font-size: 20px; }
 </style>
 """,
@@ -225,13 +223,18 @@ html, body {
 # =========================================================
 # Header (inline base64 logo)
 # =========================================================
-logo_path = _site_logo_path()
-logo_data_uri = _img_to_data_uri(logo_path) if logo_path else None
+def _logo_html() -> str:
+    p = _first_existing(LOGO_CANDIDATES)
+    if not p:
+        return ""
+    ext = p.suffix.lower().lstrip(".") or "png"
+    mime = f"image/{'jpeg' if ext in ('jpg','jpeg') else ext}"
+    b64 = base64.b64encode(p.read_bytes()).decode("ascii")
+    return f'<img src="data:{mime};base64,{b64}" width="64" />'
 
 c_logo, c_title = st.columns([1, 6], gap="small")
 with c_logo:
-    if logo_data_uri:
-        st.markdown(f'<img src="{logo_data_uri}" width="64" />', unsafe_allow_html=True)
+    st.markdown(_logo_html(), unsafe_allow_html=True)
 with c_title:
     st.markdown(
         """
@@ -500,20 +503,42 @@ def make_pdf_combined(summary_df: pd.DataFrame, flow_df: pd.DataFrame, header_te
 
 
 # =========================================================
-# UI helper: two financial tables (RTL)
+# Helpers
 # =========================================================
 def fin_panel_two_tables(left_items, right_items):
-    """Render two side-by-side financial tables (Arabic RTL layout).
-       Each item is (label, value). We render cells as: [value | label] (value left, label right)."""
+    """Render two side-by-side financial tables (Arabic RTL).
+       Each item is (label, value). We render: [value | label] (value left, label right)."""
     def _table_html(items):
         rows = []
         for label, value in items:
             rows.append(f'<tr><td class="value">{value}</td><td class="label">{label}</td></tr>')
         return f'<table class="fin-table">{"".join(rows)}</table>'
 
-    # Right panel displays "right_items", left panel displays "left_items"
     html = f'<div class="fin-panel"><div>{_table_html(right_items)}</div><div>{_table_html(left_items)}</div></div>'
     st.markdown(html, unsafe_allow_html=True)
+
+
+def _apply_date_filter(df: pd.DataFrame, dfrom, dto) -> pd.DataFrame:
+    """
+    Filter df by any Arabic/English date-like columns if present.
+    Safe no-op if columns are missing.
+    """
+    if df is None or df.empty or (not dfrom and not dto):
+        return df
+    date_cols = [c for c in df.columns if any(k in str(c) for k in ["تاريخ", "إصدار", "date", "تعاقد"])]
+    if not date_cols:
+        return df
+    out = df.copy()
+    for col in date_cols:
+        try:
+            dseries = pd.to_datetime(out[col], errors="coerce").dt.date
+            if dfrom:
+                out = out[dseries >= dfrom]
+            if dto:
+                out = out[dseries <= dto]
+        except Exception:
+            pass
+    return out
 
 
 # =========================================================
@@ -525,7 +550,7 @@ def main() -> None:
         st.error("فشل الاتصال بقاعدة البيانات. يرجى مراجعة بيانات الاتصال والتأكد من تشغيل الخادم.")
         return
 
-    # Sidebar: ONLY selectors (no date pickers here)
+    # Sidebar: ONLY selectors
     with st.sidebar:
         st.title("عوامل التصفية")
         company_name = create_company_dropdown(conn)
@@ -536,34 +561,32 @@ def main() -> None:
         st.info("برجاء اختيار الشركة والمشروع ونوع البيانات من الشريط الجانبي لعرض النتائج.")
         return
 
+    # === Global date filters in MAIN area (for ALL data types) ===
+    g_date_from, g_date_to = None, None
+    with st.container():
+        st.markdown('<div class="date-box"><div class="date-row">', unsafe_allow_html=True)
+        c1, c2 = st.columns([1, 1], gap="small")
+        with c1:
+            g_date_from = st.date_input("من تاريخ", value=None, key="g_from", format="YYYY-MM-DD")
+        with c2:
+            g_date_to = st.date_input("إلى تاريخ", value=None, key="g_to", format="YYYY-MM-DD")
+        st.markdown('</div></div>', unsafe_allow_html=True)
+
     # =======================
     # Financial Report Mode
     # =======================
     if type_key == "financial_report":
-        # Put date range in MAIN area (fully clickable)
-        date_from, date_to = None, None
-        with st.container():
-            st.markdown('<div class="date-box"><div class="date-row">', unsafe_allow_html=True)
-            c1, c2 = st.columns([1, 1], gap="small")
-            with c1:
-                date_from = st.date_input("من تاريخ", value=None, format="YYYY-MM-DD")
-            with c2:
-                date_to = st.date_input("إلى تاريخ", value=None, format="YYYY-MM-DD")
-            st.markdown('</div></div>', unsafe_allow_html=True)
-
         # Summary (single row)
         df_summary = fetch_contract_summary_view(conn, company_name, project_name)
         if df_summary.empty:
             st.warning("لم يتم العثور على ملخص العقد لهذا المشروع.")
             return
-
         row = df_summary.iloc[0].to_dict()
 
         # Big header
         header_company = company_name or "—"
         header_project = project_name or "—"
         header_date = str(row.get("تاريخ التعاقد", "—"))
-
         st.markdown(
             f"""
             <div class="fin-head">
@@ -580,7 +603,7 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
-        # Two-column financial panel ONLY (no cards)
+        # Two-column financial panel ONLY (no KPI cards)
         def _fmt(v):
             try:
                 if isinstance(v, str) and v.strip().endswith("%"):
@@ -598,8 +621,6 @@ def main() -> None:
             ("الدفعة المقدمة", _fmt(row.get("الدفعه المقدمه", 0))),
             ("إجمالي التحصيلات", _fmt(row.get("التحصيلات", 0))),
         ]
-
-        # Left table – placeholders (wire real formulas if you have them)
         left_items = [
             ("مواد أولية", _fmt(row.get("حجم الاعمال المنفذة", 0))),
             ("مصروفات غير مباشرة", _fmt(0)),
@@ -608,11 +629,10 @@ def main() -> None:
             ("الحد الائتماني", _fmt(row.get("قيمة التعاقد", 0))),
             ("المستحق صرفه", _fmt(row.get("المستحق صرفه", 0))),
         ]
-
         st.markdown('<h3 class="hsec">ملخص المشروع</h3>', unsafe_allow_html=True)
         fin_panel_two_tables(left_items=left_items, right_items=right_items)
 
-        # Downloads (summary)
+        # Downloads (summary only)
         df_summary_out = df_summary.copy()
         xlsx_sum = make_excel_bytes(df_summary_out, sheet_name="ملخص")
         if xlsx_sum:
@@ -633,9 +653,9 @@ def main() -> None:
 
         st.markdown("---")
 
-        # Ledger (v_financial_flow)
+        # Ledger (v_financial_flow) with GLOBAL dates
         st.markdown('<h3 class="hsec">الدفتر الزمني (v_financial_flow)</h3>', unsafe_allow_html=True)
-        df_flow = fetch_financial_flow_view(conn, company_name, project_name, date_from, date_to)
+        df_flow = fetch_financial_flow_view(conn, company_name, project_name, g_date_from, g_date_to)
         if df_flow.empty:
             st.info("لا توجد حركات مطابقة ضمن النطاق المحدد.")
             return
@@ -706,12 +726,15 @@ def main() -> None:
         return
 
     # =======================
-    # Classic table mode (raw tables)
+    # Classic table mode (contracts/guarantees/invoices/checks)
     # =======================
     df = fetch_data(conn, company_name, project_name, type_key)
     if df.empty:
         st.warning("لا توجد بيانات مطابقة للاختيارات المحددة.")
         return
+
+    # Apply GLOBAL date filter to any date-like columns
+    df = _apply_date_filter(df, g_date_from, g_date_to)
 
     search_column, search_term = create_column_search(df)
     if search_column and search_term:
