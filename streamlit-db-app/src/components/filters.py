@@ -15,17 +15,17 @@ def create_project_dropdown(conn, company_name: str):
     return st.selectbox("اختر المشروع", options=projects, index=0 if projects else None, placeholder="— اختر —")
 
 def create_type_dropdown():
-    # الأسماء المعروضة بالعربي ← تُحوّل لاسم الجدول الفعلي
-    display_to_table = {
+    # إضافة "تقرير مالي" كخيار جديد يفعّل عرض الـ Views
+    display_to_key = {
+        "تقرير مالي": "financial_report",
         "العقود": "contract",
         "خطابات الضمان": "guarantee",
         "المستخلصات": "invoice",
         "الشيكات / التحويلات": "checks",
     }
-    display_list = list(display_to_table.keys())
+    display_list = list(display_to_key.keys())
     display_choice = st.selectbox("اختر نوع البيانات", options=display_list, index=0 if display_list else None, placeholder="— اختر —")
-    target_table = display_to_table.get(display_choice)
-    return display_choice, target_table
+    return display_choice, display_to_key.get(display_choice)
 
 def create_column_search(df: pd.DataFrame):
     if df.empty:
@@ -33,3 +33,14 @@ def create_column_search(df: pd.DataFrame):
     col = st.selectbox("اختَر عمودًا للبحث", options=df.columns.tolist(), index=0)
     term = st.text_input("كلمة/عبارة للبحث")
     return col, term
+
+def create_date_range():
+    c1, c2 = st.columns(2)
+    with c1:
+        d_from = st.date_input("من تاريخ", value=None, format="YYYY-MM-DD")
+    with c2:
+        d_to = st.date_input("إلى تاريخ", value=None, format="YYYY-MM-DD")
+    # إرجاع None لو لم يُحدد المستخدم
+    d_from = pd.to_datetime(d_from).date() if d_from else None
+    d_to = pd.to_datetime(d_to).date() if d_to else None
+    return d_from, d_to

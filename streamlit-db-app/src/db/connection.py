@@ -24,7 +24,7 @@ def fetch_companies(supabase: Client) -> pd.DataFrame:
     except Exception:
         return pd.DataFrame(columns=["اسم الشركة"])
 
-# المشاريع بحسب الشركة (يعتمد على الحقل العربي "اسم المشروع")
+# المشاريع بحسب الشركة
 def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFrame:
     if not company_name:
         return pd.DataFrame(columns=["اسم المشروع"])
@@ -40,49 +40,54 @@ def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFra
             return pd.DataFrame(columns=["اسم المشروع"])
         company_id = company_resp.data["companyid"]
 
-        # ✅ IMPORTANT: quote the Arabic column OR use filter()
         projects_resp = (
             supabase.table("contract")
-            .select('"اسم المشروع"')           # quoted identifier
+            .select('"اسم المشروع"')
             .eq("companyid", company_id)
             .execute()
         )
         df = pd.DataFrame(projects_resp.data or [])
-        # normalize column name in case the client returns it quoted
         df = df.rename(columns={'"اسم المشروع"': 'اسم المشروع'})
         return df.drop_duplicates()
 
     except Exception as e:
-        # Optional: show error in UI while developing
         st.caption(f"⚠️ fetch_projects_by_company error: {e}")
         return pd.DataFrame(columns=["اسم المشروع"])
 
-
-def fetch_data(supabase: Client, company_name: str, project_name: str, target_table: str) -> pd.DataFrame:
+def _get_company_and_contract_ids(supabase: Client, company_name: str, project_name: str) -> tuple[int | None, int | None]:
     try:
         company_resp = (
             supabase.table("company")
-            .select("companyid")
+            .select("companyid, companyname")
             .eq("companyname", company_name)
             .single()
             .execute()
         )
         if not company_resp.data:
-            return pd.DataFrame()
+            return None, None
         company_id = company_resp.data["companyid"]
 
-        # ✅ IMPORTANT: quote Arabic column in SELECT, and use filter() for equality
         contract_resp = (
             supabase.table("contract")
             .select('contractid, companyid, "اسم المشروع"')
             .eq("companyid", company_id)
-            .filter('اسم المشروع', 'eq', project_name)  # safer for non-ASCII names
+            .filter('اسم المشروع', 'eq', project_name)
             .single()
             .execute()
         )
         if not contract_resp.data:
+            return company_id, None
+        return company_id, contract_resp.data["contractid"]
+    except Exception as e:
+        st.caption(f"⚠️ _get_company_and_contract_ids error: {e}")
+        return None, None
+
+# البيانات الخام (للأنواع الأخرى)
+def fetch_data(supabase: Client, company_name: str, project_name: str, target_table: str) -> pd.DataFrame:
+    try:
+        company_id, contract_id = _get_company_and_contract_ids(supabase, company_name, project_name)
+        if not company_id or not contract_id:
             return pd.DataFrame()
-        contract_id = contract_resp.data["contractid"]
 
         tbl = target_table.lower()
         if tbl == "contract":
@@ -108,35 +113,77 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
             return pd.DataFrame()
 
         df = pd.DataFrame(data)
-
-        # drop *_id columns from display
         if not df.empty:
             df.drop(columns=[c for c in df.columns if c.lower().endswith("id")],
                     inplace=True, errors="ignore")
 
-        # optional: format Arabic date columns
         for col in df.columns:
             if "تاريخ" in col or "إصدار" in col:
-                with pd.option_context('mode.chained_assignment', None):
-                    try:
-                        df[col] = pd.to_datetime(df[col]).dt.strftime("%Y-%m-%d")
-                    except Exception:
-                        pass
+                try:
+                    df[col] = pd.to_datetime(df[col]).dt.strftime("%Y-%m-%d")
+                except Exception:
+                    pass
         return df
-
     except Exception as e:
         st.caption(f"⚠️ fetch_data error: {e}")
         return pd.DataFrame()
 
+# === NEW: جلب v_financial_flow مع فلاتر التاريخ ===
+def fetch_financial_flow_view(supabase: Client, company_name: str, project_name: str,
+                              date_from=None, date_to=None) -> pd.DataFrame:
+    company_id, contract_id = _get_company_and_contract_ids(supabase, company_name, project_name)
+    if not company_id or not contract_id:
+        return pd.DataFrame()
 
-def _format_columns_for_display(df: pd.DataFrame) -> pd.DataFrame:
-    df2 = df.copy()
-    # تحويل أعمدة التواريخ العربية إن وُجدت إلى صيغة YYYY-MM-DD
-    date_like_cols = [c for c in df2.columns if "تاريخ" in c or "إصدار" in c]
-    for col in date_like_cols:
-        try:
-            df2[col] = pd.to_datetime(df2[col]).dt.strftime("%Y-%m-%d")
-        except Exception:
-            pass
-    # لا تغيّر أعمدة الأرقام؛ تترك كما هي (Postgres numeric → float/decimal)
-    return df2
+    try:
+        q = supabase.table("v_financial_flow").select(
+            'companyid, contractid, "التاريخ", "نوع العملية", "اسم المستخلص", '
+            '"قيمة المستخلص قبل الخصومات", "صافي المستحق بعد الخصومات", '
+            '"رقم الشيك", "البنك", "قيمة الشيك", "الغرض من إصدار الشيك", "المتبقي"'
+        ).eq("contractid", contract_id)
+
+        # استخدم filter مع أسماء الأعمدة العربية
+        if date_from:
+            q = q.filter('التاريخ', 'gte', str(date_from))
+        if date_to:
+            q = q.filter('التاريخ', 'lte', str(date_to))
+
+        resp = q.order("التاريخ", desc=False).execute()
+        df = pd.DataFrame(resp.data or [])
+        # تنسيقات
+        if not df.empty:
+            for col in ["التاريخ"]:
+                try:
+                    df[col] = pd.to_datetime(df[col]).dt.strftime("%Y-%m-%d")
+                except Exception:
+                    pass
+        return df
+    except Exception as e:
+        st.caption(f"⚠️ fetch_financial_flow_view error: {e}")
+        return pd.DataFrame()
+
+# === NEW: جلب v_contract_summary كسطر ملخّص واحد للمشروع ===
+def fetch_contract_summary_view(supabase: Client, company_name: str, project_name: str) -> pd.DataFrame:
+    company_id, contract_id = _get_company_and_contract_ids(supabase, company_name, project_name)
+    if not company_id or not contract_id:
+        return pd.DataFrame()
+    try:
+        # نختار بالاسم والتعاقد لضمان صف واحد
+        resp = (
+            supabase.table("v_contract_summary")
+            .select('"اسم المشروع","تاريخ التعاقد","قيمة التعاقد","حجم الاعمال المنفذة",'
+                    '"نسبة الاعمال المنفذة","الدفعه المقدمه","التحصيلات","المستحق صرفه"')
+            .filter('اسم المشروع', 'eq', project_name)
+            .execute()
+        )
+        df = pd.DataFrame(resp.data or [])
+        if not df.empty:
+            if "تاريخ التعاقد" in df.columns:
+                try:
+                    df["تاريخ التعاقد"] = pd.to_datetime(df["تاريخ التعاقد"]).dt.strftime("%Y-%m-%d")
+                except Exception:
+                    pass
+        return df.head(1)  # بطاقة واحدة
+    except Exception as e:
+        st.caption(f"⚠️ fetch_contract_summary_view error: {e}")
+        return pd.DataFrame()
