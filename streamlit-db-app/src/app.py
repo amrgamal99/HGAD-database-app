@@ -171,7 +171,7 @@ html, body {
 [data-testid="stDataFrame"] div[role="row"] { font-size: 15px; }
 [data-testid="stDataFrame"] div[role="row"]:nth-child(even) { background-color: rgba(255,255,255,0.04); }
 
-/* === Date inputs in MAIN area (clickable, clear) === */
+/* === Date inputs in MAIN area === */
 .date-box {
     border: 1px solid #334155; border-radius: 12px; padding: 12px; background:#0b1220; margin-bottom: 10px;
 }
@@ -196,12 +196,14 @@ html, body {
 
 /* Two-column financial panel (RTL) */
 .fin-panel { display:grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 10px; }
-.fin-table { width:100%; border-collapse: collapse; }
+.fin-table { width:100%; border-collapse: collapse; table-layout: fixed; }
 .fin-table th, .fin-table td {
     border: 1px solid #334155; padding: 10px; font-size: 14px;
+    white-space: normal; word-wrap: break-word;
 }
-.fin-table td.value { background:#111827; color:#e5e7eb; font-weight:800; text-align:center; width: 45%; }
-.fin-table td.label { background:#0b1220; color:#e5e7eb; font-weight:700; text-align:right; }
+/* ↓ Make VALUE narrower, give Arabic LABEL more room */
+.fin-table td.value { background:#111827; color:#e5e7eb; font-weight:800; text-align:center; width: 32%; }
+.fin-table td.label { background:#0b1220; color:#e5e7eb; font-weight:700; text-align:right; width: 68%; }
 
 /* Section title */
 .hsec { color:#1E3A8A; font-weight:800; margin:0.2rem 0 0.6rem 0; font-size: 20px; }
@@ -324,7 +326,6 @@ def make_excel_bytes(df: pd.DataFrame, sheet_name: str = "البيانات") -> 
 
 
 def make_excel_combined_two_sheets(dfs: Dict[str, pd.DataFrame]) -> Optional[bytes]:
-    """Each df in a separate sheet."""
     engine = _pick_excel_engine()
     if engine is None:
         return None
@@ -337,17 +338,12 @@ def make_excel_combined_two_sheets(dfs: Dict[str, pd.DataFrame]) -> Optional[byt
 
 
 def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], sheet_name="تقرير_موحد") -> Optional[bytes]:
-    """
-    Put multiple dataframes into ONE sheet:
-    Title row -> table -> blank row -> next title -> next table ...
-    """
     engine = _pick_excel_engine()
     if engine is None:
         return None
 
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine=engine) as writer:
-        # For openpyxl/xlsxwriter, we'll write manually by offsets (xlsxwriter path)
         if writer.engine == "xlsxwriter":
             wb = writer.book
             ws = wb.add_worksheet(sheet_name[:31])
@@ -400,9 +396,8 @@ def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], sheet_name="ت
                     series = df[col]
                     max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
                     ws.set_column(c_idx, c_idx, min(max_len + 4, 60))
-                row_offset += 2  # blank rows between sections
+                row_offset += 2
         else:
-            # Fallback: concat with title separators
             out = []
             for title, df in dfs.items():
                 title_row = pd.DataFrame([[title] + [""] * (len(df.columns) - 1)], columns=df.columns)
@@ -421,7 +416,7 @@ def make_csv_utf8(df: pd.DataFrame) -> bytes:
 
 
 # =========================================================
-# PDF helpers (zoomed out but clear)
+# PDF helpers (auto-fit wide tables)
 # =========================================================
 def _format_numbers_for_display(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
@@ -442,18 +437,37 @@ def _format_numbers_for_display(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _pdf_table(df: pd.DataFrame, title: str = "", max_col_width: int = 130, font_size: float = 7.5) -> list:
+def _pdf_table(
+    df: pd.DataFrame,
+    title: str = "",
+    max_col_width: int = 120,
+    font_size: float = 7.0,
+    avail_width: Optional[float] = None
+) -> list:
     """
-    Smaller fonts + capped col widths to show more columns (zoomed out but readable).
+    Smaller fonts + capped col widths, minimal paddings, and
+    automatic scale-to-page if total width exceeds avail_width.
     """
     font_name, _ = register_arabic_font()
-    hdr_style = ParagraphStyle(name="Hdr", fontName=font_name, fontSize=font_size+0.7, textColor=colors.whitesmoke, alignment=1, leading=font_size+2)
-    cell_rtl  = ParagraphStyle(name="CellR", fontName=font_name, fontSize=font_size, leading=font_size+1.5, alignment=2, wordWrap='CJK')
-    cell_ltr  = ParagraphStyle(name="CellL", fontName=font_name, fontSize=font_size, leading=font_size+1.5, alignment=0, wordWrap='CJK')
+    hdr_style = ParagraphStyle(
+        name="Hdr", fontName=font_name, fontSize=font_size+0.6,
+        textColor=colors.whitesmoke, alignment=1, leading=font_size+1.8
+    )
+    cell_rtl  = ParagraphStyle(
+        name="CellR", fontName=font_name, fontSize=font_size,
+        leading=font_size+1.5, alignment=2, wordWrap='CJK'
+    )
+    cell_ltr  = ParagraphStyle(
+        name="CellL", fontName=font_name, fontSize=font_size,
+        leading=font_size+1.5, alignment=0, wordWrap='CJK'
+    )
 
     blocks = []
     if title:
-        tstyle = ParagraphStyle(name="Sec", fontName=font_name, fontSize=font_size+2, alignment=2, textColor=colors.HexColor("#1E3A8A"))
+        tstyle = ParagraphStyle(
+            name="Sec", fontName=font_name, fontSize=font_size+2,
+            alignment=2, textColor=colors.HexColor("#1E3A8A")
+        )
         blocks += [Paragraph(shape_arabic(title), tstyle), Spacer(1, 4)]
 
     headers = [Paragraph(shape_arabic(c) if looks_arabic(c) else str(c), hdr_style) for c in df.columns]
@@ -466,10 +480,18 @@ def _pdf_table(df: pd.DataFrame, title: str = "", max_col_width: int = 130, font
             cells.append(Paragraph(shape_arabic(sval) if is_ar else sval, cell_rtl if is_ar else cell_ltr))
         rows.append(cells)
 
+    # initial col widths in points (≈ 6.2 pt per char heuristic)
     col_widths = []
     for c in df.columns:
         max_len = max(len(str(c)), df[c].astype(str).map(len).max())
-        col_widths.append(min(max_len * 6.5, max_col_width))
+        col_widths.append(min(max_len * 6.2, max_col_width))
+
+    # If too wide, scale all columns proportionally to fit avail_width
+    if avail_width:
+        total = sum(col_widths)
+        if total > avail_width:
+            factor = avail_width / total
+            col_widths = [w * factor for w in col_widths]
 
     table = Table(rows, repeatRows=1, colWidths=col_widths)
     table.setStyle(TableStyle([
@@ -478,7 +500,11 @@ def _pdf_table(df: pd.DataFrame, title: str = "", max_col_width: int = 130, font
         ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1E3A8A")),
         ("TEXTCOLOR", (0,0), (-1,0), colors.whitesmoke),
-        ("BOTTOMPADDING", (0,0), (-1,0), 4),
+        ("BOTTOMPADDING", (0,0), (-1,0), 3),
+        ("TOPPADDING", (0,1), (-1,-1), 2),
+        ("BOTTOMPADDING", (0,1), (-1,-1), 2),
+        ("LEFTPADDING", (0,0), (-1,-1), 2),
+        ("RIGHTPADDING", (0,0), (-1,-1), 2),
         ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
         ("WORDWRAP", (0,0), (-1,-1), True),
     ]))
@@ -486,16 +512,28 @@ def _pdf_table(df: pd.DataFrame, title: str = "", max_col_width: int = 130, font
     return blocks
 
 
-def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 130, base_font: float = 7.5) -> bytes:
+def _choose_pdf_font(df: pd.DataFrame) -> Tuple[int, float]:
+    """Return (max_col_width, font_size) depending on number of columns."""
+    n = len(df.columns)
+    if n >= 12:
+        return 110, 6.6
+    if n >= 9:
+        return 120, 7.0
+    return 140, 7.6
+
+
+def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "") -> bytes:
     buf = BytesIO()
     font_name, arabic_ok = register_arabic_font()
 
-    # Landscape A4, tighter margins
     page = landscape(A4)
-    left, right, top, bottom = 16, 16, 20, 16
-    doc = SimpleDocTemplate(buf, pagesize=page, rightMargin=right, leftMargin=left, topMargin=top, bottomMargin=bottom)
+    left, right, top, bottom = 14, 14, 18, 14  # tighter margins
+    doc = SimpleDocTemplate(
+        buf, pagesize=page, rightMargin=right, leftMargin=left,
+        topMargin=top, bottomMargin=bottom
+    )
 
-    title_style = ParagraphStyle(name="Title", fontName=font_name, fontSize=14, leading=16, alignment=1)
+    title_style = ParagraphStyle(name="Title", fontName=font_name, fontSize=13.5, leading=15, alignment=1)
     base_title = "التقرير المالي"
     title_text = f"{base_title} ({pdf_name})" if pdf_name else base_title
     if arabic_ok:
@@ -509,9 +547,9 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 13
             if PILImage:
                 w_px, h_px = _image_size(wlp)
                 ratio = h_px / float(w_px) if w_px else 0.2
-                img_h = max(24, avail_w * ratio * 0.6)
+                img_h = max(22, avail_w * ratio * 0.55)
             else:
-                img_h = 40
+                img_h = 36
             logo_img = RLImage(str(wlp), hAlign="CENTER")
             logo_img.drawWidth = avail_w
             logo_img.drawHeight = img_h
@@ -521,8 +559,15 @@ def make_pdf_bytes(df: pd.DataFrame, pdf_name: str = "", max_col_width: int = 13
             pass
 
     elements.append(Paragraph(title_text, title_style))
-    elements.append(Spacer(1, 6))
-    elements += _pdf_table(df, max_col_width=max_col_width, font_size=base_font)
+    elements.append(Spacer(1, 5))
+
+    max_col_width, base_font = _choose_pdf_font(df)
+    elements += _pdf_table(
+        df,
+        max_col_width=max_col_width,
+        font_size=base_font,
+        avail_width=avail_w
+    )
     doc.build(elements)
     buf.seek(0)
     return buf.getvalue()
@@ -533,10 +578,13 @@ def make_pdf_combined(summary_df: pd.DataFrame, flow_df: pd.DataFrame, header_te
     font_name, arabic_ok = register_arabic_font()
 
     page = landscape(A4)
-    left, right, top, bottom = 16, 16, 20, 16
-    doc = SimpleDocTemplate(buf, pagesize=page, rightMargin=right, leftMargin=left, topMargin=top, bottomMargin=bottom)
+    left, right, top, bottom = 14, 14, 18, 14
+    doc = SimpleDocTemplate(
+        buf, pagesize=page, rightMargin=right, leftMargin=left,
+        topMargin=top, bottomMargin=bottom
+    )
 
-    title_style = ParagraphStyle(name="Title", fontName=font_name, fontSize=14, leading=16, alignment=1)
+    title_style = ParagraphStyle(name="Title", fontName=font_name, fontSize=13.5, leading=15, alignment=1)
     head_style  = ParagraphStyle(name="Head",  fontName=font_name, fontSize=11, leading=14, alignment=2, textColor=colors.HexColor("#1E3A8A"))
 
     base_title = "التقرير المالي"
@@ -552,9 +600,9 @@ def make_pdf_combined(summary_df: pd.DataFrame, flow_df: pd.DataFrame, header_te
             if PILImage:
                 w_px, h_px = _image_size(wlp)
                 ratio = h_px / float(w_px) if w_px else 0.2
-                img_h = max(24, avail_w * ratio * 0.6)
+                img_h = max(22, avail_w * ratio * 0.55)
             else:
-                img_h = 40
+                img_h = 36
             logo_img = RLImage(str(wlp), hAlign="CENTER")
             logo_img.drawWidth = avail_w
             logo_img.drawHeight = img_h
@@ -569,9 +617,11 @@ def make_pdf_combined(summary_df: pd.DataFrame, flow_df: pd.DataFrame, header_te
         elements.append(Paragraph(header_text, head_style))
     elements.append(Spacer(1, 6))
 
-    elements += _pdf_table(summary_df, title="ملخص المشروع", max_col_width=130, font_size=7.5)
+    max_w_s, f_s = _choose_pdf_font(summary_df)
+    elements += _pdf_table(summary_df, title="ملخص المشروع", max_col_width=max_w_s, font_size=f_s, avail_width=avail_w)
     elements.append(PageBreak())
-    elements += _pdf_table(flow_df, title="دفتر التدفق", max_col_width=130, font_size=7.5)
+    max_w_f, f_f = _choose_pdf_font(flow_df)
+    elements += _pdf_table(flow_df, title="دفتر التدفق", max_col_width=max_w_f, font_size=f_f, avail_width=avail_w)
     doc.build(elements)
     buf.seek(0)
     return buf.getvalue()
@@ -583,7 +633,7 @@ def make_pdf_combined(summary_df: pd.DataFrame, flow_df: pd.DataFrame, header_te
 def fin_panel_two_tables(left_items: List[Tuple[str, str]], right_items: List[Tuple[str, str]]):
     """
     Render two side-by-side tables.
-    We show: [ value | label ] so that label is on the RIGHT and value on the LEFT (your requirement).
+    We show: [ value | label ] -> label on RIGHT (wider), value on LEFT (narrower).
     Each item is (label, value).
     """
     def _table_html(items):
@@ -628,7 +678,7 @@ def _fmt_value(v) -> str:
 def _row_to_pairs_from_data(row: pd.Series) -> List[Tuple[str, str]]:
     """
     Build (label,value) pairs DIRECTLY from df_summary row.
-    Removes technical columns and empties.
+    Removes technical columns and empty values.
     """
     ignore_substrings = {"id", "ID", "companyid", "contractid"}
     pairs = []
@@ -643,10 +693,6 @@ def _row_to_pairs_from_data(row: pd.Series) -> List[Tuple[str, str]]:
 
 
 def _split_pairs_two_columns(pairs: List[Tuple[str, str]]) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
-    """
-    Split list into two roughly equal halves for right/left tables.
-    Right table is shown first (visually right column).
-    """
     n = len(pairs)
     mid = (n + 1) // 2
     right = pairs[:mid]
@@ -689,7 +735,7 @@ def main() -> None:
     # Financial Report Mode
     # =======================
     if type_key == "financial_report":
-        # Summary (single row, ALL from data)
+        # Summary (single row)
         df_summary = fetch_contract_summary_view(conn, company_name, project_name)
         if df_summary.empty:
             st.warning("لم يتم العثور على ملخص العقد لهذا المشروع.")
@@ -715,15 +761,14 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
-        # Build pairs DIRECTLY from df_summary row (no fabricated fields)
+        # Build pairs from data only
         summary_pairs = _row_to_pairs_from_data(row)
-        if not summary_pairs:
-            st.info("لا توجد حقول قابلة للعرض في ملخص العقد.")
-        else:
-            # Split pairs into two tables (label on RIGHT, value on LEFT)
+        if summary_pairs:
             left_items, right_items = _split_pairs_two_columns(summary_pairs)
             st.markdown('<h3 class="hsec">ملخص المشروع</h3>', unsafe_allow_html=True)
             fin_panel_two_tables(left_items=left_items, right_items=right_items)
+        else:
+            st.info("لا توجد حقول قابلة للعرض في ملخص العقد.")
 
         # Downloads (summary only)
         df_summary_out = df_summary.copy()
@@ -735,8 +780,7 @@ def main() -> None:
                 file_name=_safe_filename(f"ملخص_{company_name}_{project_name}.xlsx"),
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-        pdf_sum = make_pdf_bytes(_format_numbers_for_display(df_summary_out),
-                                 pdf_name=_safe_filename(f"ملخص_{company_name}_{project_name}"))
+        pdf_sum = make_pdf_bytes(_format_numbers_for_display(df_summary_out))
         st.download_button(
             label="تنزيل الملخص كـ PDF (مُصغّر واضح)",
             data=pdf_sum,
@@ -747,13 +791,12 @@ def main() -> None:
         st.markdown("---")
 
         # Ledger (v_financial_flow) with GLOBAL dates
-        st.markdown('<h3 class="hsec">الدفتر الزمني (v_financial_flow)</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 class="hsec">دفتر التدفق (v_financial_flow)</h3>', unsafe_allow_html=True)
         df_flow = fetch_financial_flow_view(conn, company_name, project_name, g_date_from, g_date_to)
         if df_flow.empty:
             st.info("لا توجد حركات مطابقة ضمن النطاق المحدد.")
             return
 
-        # Optional search
         col_search, term = create_column_search(df_flow)
         if col_search and term:
             df_flow = df_flow[df_flow[col_search].astype(str).str.contains(str(term), case=False, na=False)]
@@ -781,8 +824,7 @@ def main() -> None:
             file_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}.csv"),
             mime="text/csv",
         )
-        pdf_flow = make_pdf_bytes(_format_numbers_for_display(df_flow_display),
-                                  pdf_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}"))
+        pdf_flow = make_pdf_bytes(_format_numbers_for_display(df_flow_display))
         st.download_button(
             label="تنزيل الدفتر كـ PDF (مُصغّر واضح)",
             data=pdf_flow,
@@ -874,7 +916,7 @@ def main() -> None:
     )
 
     pdf_title = _safe_filename(f"{type_key}_{company_name}_{project_name}")
-    pdf_bytes = make_pdf_bytes(_format_numbers_for_display(df), pdf_name=pdf_title)
+    pdf_bytes = make_pdf_bytes(_format_numbers_for_display(df))
     st.download_button(
         label="تنزيل كـ PDF (مُصغّر واضح)",
         data=pdf_bytes,
