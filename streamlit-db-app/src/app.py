@@ -264,7 +264,7 @@ def _pick_excel_engine() -> Optional[str]:
 
 
 def _estimate_col_widths_chars(df: pd.DataFrame) -> List[float]:
-    """Same logic we later use to set widths; used to scale the logo to full table width."""
+    """Estimate chars width per column (used for logo scaling & set_column)."""
     widths = []
     for col in df.columns:
         series = df[col]
@@ -274,12 +274,12 @@ def _estimate_col_widths_chars(df: pd.DataFrame) -> List[float]:
 
 
 def _chars_to_pixels(chars: float) -> float:
-    """Very close mapping Excel uses (≈ 7.2 px per char)."""
+    """Approx Excel mapping (≈7.2 px per char)."""
     return chars * 7.2
 
 
 def _compose_title(company: str, project: str, data_type: str, dfrom, dto) -> str:
-    # Reversed arrow for RTL: start ← end
+    # RTL-friendly reversed arrow
     parts = []
     if company: parts.append(f"الشركة: {company}")
     if project: parts.append(f"المشروع: {project}")
@@ -291,9 +291,8 @@ def _compose_title(company: str, project: str, data_type: str, dfrom, dto) -> st
 
 def _insert_wide_logo(ws, df: pd.DataFrame, start_row: int, start_col: int = 0) -> int:
     """
-    Insert the wide logo scaled so its width equals the whole table width
-    (first column to last). Title will be on the *next* row. Only a single
-    blank row is left before the table.
+    Insert the wide logo scaled to span the full table width (first→last column).
+    Return the next row index for the title. Only one tight title row after.
     """
     wlp = _wide_logo_path()
     if not wlp:
@@ -306,17 +305,15 @@ def _insert_wide_logo(ws, df: pd.DataFrame, start_row: int, start_col: int = 0) 
         img_w_px, img_h_px = _image_size(wlp)
         if img_w_px <= 0: img_w_px = 1000
         x_scale = max(0.1, total_width_px / float(img_w_px))
-        y_scale = x_scale  # keep aspect
+        y_scale = x_scale  # keep aspect ratio
         ws.insert_image(
             start_row, start_col, str(wlp),
             {"x_scale": x_scale, "y_scale": y_scale, "object_position": 2}
         )
-        # Row height to fit image tightly (no huge gap)
         scaled_h_px = img_h_px * y_scale
         ws.set_row(start_row, int(scaled_h_px * 0.75))  # px→pt approx
-        return start_row + 1  # next row is for the title
+        return start_row + 1
     except Exception:
-        # Fallback small logo row
         ws.set_row(start_row, 80)
         ws.insert_image(start_row, start_col, str(wlp), {"x_scale": 0.5, "y_scale": 0.5, "object_position": 2})
         return start_row + 1
@@ -441,7 +438,6 @@ def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], title_line: st
 
             cur_row = 0
             if put_logo:
-                # Use the widest section to scale logo nicely
                 widest_df = max(dfs.values(), key=lambda d: len(d.columns))
                 cur_row = _insert_wide_logo(ws, widest_df, start_row=cur_row, start_col=0)
 
@@ -475,23 +471,56 @@ def make_csv_utf8(df: pd.DataFrame) -> bytes:
 
 # =========================================================
 # PDF helpers (clean + zebra + anchors + dynamic title)
+# ******* FINAL FIX FOR 'رقم الشيك' (no commas) **********
 # =========================================================
+def _normalize_name(s: str) -> str:
+    """Normalize Arabic column names: remove spaces, tatweel and zero-width marks."""
+    return re.sub(r'[\s\u0640\u200c\u200d\u200e\u200f]+', '', str(s or ''))
+
+def _plain_number_no_commas(x) -> str:
+    """Render number as plain string without thousands separators; trim trailing .00."""
+    if pd.isna(x):
+        return ""
+    sx = str(x).replace(",", "").strip()
+    try:
+        f = float(sx)
+        if float(int(f)) == f:
+            return str(int(f))
+        s = f"{f}"
+        if "." in s:
+            s = s.rstrip("0").rstrip(".")
+        return s
+    except Exception:
+        return str(x)
+
 def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[str]] = None) -> pd.DataFrame:
-    no_comma_cols = set([str(c).strip() for c in (no_comma_cols or [])])
+    """
+    Format numbers for PDF display.
+    * Any column explicitly listed in no_comma_cols
+    * OR any column whose normalized name contains 'شيك'
+      is rendered as plain text (no thousands separators).
+    """
     out = df.copy()
+    requested = {_normalize_name(c) for c in (no_comma_cols or [])}
+
     for c in out.columns:
-        c_str = str(c).strip()
-        if c_str in no_comma_cols:
-            out[c] = out[c].astype(str)
+        c_norm = _normalize_name(c)
+        force_plain = (c_norm in requested) or ("شيك" in c_norm)
+
+        if force_plain:
+            out[c] = out[c].map(_plain_number_no_commas)
             continue
+
         if pd.api.types.is_numeric_dtype(out[c]):
             out[c] = out[c].map(lambda x: "" if pd.isna(x) else f"{float(x):,.2f}")
         else:
             def _fmt_cell(v):
                 s = str(v)
                 try:
-                    if s.strip().endswith("%"): return s
-                    fv = float(s.replace(",", "")); return f"{fv:,.2f}"
+                    if s.strip().endswith("%"):
+                        return s
+                    fv = float(s.replace(",", ""))
+                    return f"{fv:,.2f}"
                 except Exception:
                     return s
             out[c] = out[c].map(_fmt_cell)
@@ -751,7 +780,7 @@ def main() -> None:
             st.markdown('<h3 class="hsec">ملخص المشروع</h3>', unsafe_allow_html=True)
             fin_panel_two_tables(left_items=left_items, right_items=right_items)
 
-        # Titles for exports (←)
+        # Titles for exports (RTL arrow)
         title_summary = compose_pdf_title(company_name, project_name, "ملخص", g_date_from, g_date_to)
         title_flow    = compose_pdf_title(company_name, project_name, "دفتر التدفق", g_date_from, g_date_to)
         title_all     = compose_pdf_title(company_name, project_name, "ملخص + دفتر التدفق", g_date_from, g_date_to)
@@ -799,7 +828,7 @@ def main() -> None:
                            file_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}.csv"),
                            mime="text/csv")
 
-        # PDF: keep رقم الشيك without commas
+        # PDF: keep رقم الشيك without commas (and any column containing 'شيك')
         pdf_flow_df = _format_numbers_for_display(df_flow_display, no_comma_cols=["رقم الشيك"])
         pdf_flow = make_pdf_bytes(pdf_flow_df, title_line=title_flow)
         st.download_button("تنزيل الدفتر كـ PDF", pdf_flow,
