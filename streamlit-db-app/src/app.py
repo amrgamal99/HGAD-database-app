@@ -248,7 +248,7 @@ with c_title:
 st.markdown('<hr class="hr-accent"/>', unsafe_allow_html=True)
 
 # =========================================================
-# Excel helpers (logo + big title + Excel table)
+# Excel helpers (logo spans full width + tight spacing + Excel table)
 # =========================================================
 def _pick_excel_engine() -> Optional[str]:
     try:
@@ -263,57 +263,79 @@ def _pick_excel_engine() -> Optional[str]:
         return None
 
 
+def _estimate_col_widths_chars(df: pd.DataFrame) -> List[float]:
+    """Same logic we later use to set widths; used to scale the logo to full table width."""
+    widths = []
+    for col in df.columns:
+        series = df[col]
+        max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
+        widths.append(min(max_len + 4, 60))
+    return widths
+
+
+def _chars_to_pixels(chars: float) -> float:
+    """Very close mapping Excel uses (≈ 7.2 px per char)."""
+    return chars * 7.2
+
+
 def _compose_title(company: str, project: str, data_type: str, dfrom, dto) -> str:
+    # Reversed arrow for RTL: start ← end
     parts = []
     if company: parts.append(f"الشركة: {company}")
     if project: parts.append(f"المشروع: {project}")
     if data_type: parts.append(f"النوع: {data_type}")
     if dfrom or dto:
-        parts.append(f"الفترة: {dfrom or '—'} → {dto or '—'}")
+        parts.append(f"الفترة: {dfrom or '—'} ← {dto or '—'}")
     return " | ".join(parts)
 
 
-def _insert_wide_logo(ws, start_row: int = 0, col: int = 0) -> int:
+def _insert_wide_logo(ws, df: pd.DataFrame, start_row: int, start_col: int = 0) -> int:
     """
-    Insert the wide logo safely and return the first empty row *after*
-    the logo area. We also increase the heights of the rows the image
-    sits on so the next content never overlaps.
+    Insert the wide logo scaled so its width equals the whole table width
+    (first column to last). Title will be on the *next* row. Only a single
+    blank row is left before the table.
     """
     wlp = _wide_logo_path()
     if not wlp:
         return start_row
+
+    widths_chars = _estimate_col_widths_chars(df)
+    total_width_px = _chars_to_pixels(sum(widths_chars))
+
     try:
-        # Put the image at row 0 with offsets and keep it on top rows.
-        options = {
-            "x_scale": 0.62, "y_scale": 0.62,
-            "x_offset": 2, "y_offset": 2,
-            "object_position": 2,  # move with cells, don't resize
-        }
-        ws.insert_image(start_row, col, str(wlp), options)
-        # Make the first 10 rows a bit taller so image has space.
-        for r in range(start_row, start_row + 10):
-            ws.set_row(r, 26)
-        return start_row + 11  # start title clearly *below* the logo block
+        img_w_px, img_h_px = _image_size(wlp)
+        if img_w_px <= 0: img_w_px = 1000
+        x_scale = max(0.1, total_width_px / float(img_w_px))
+        y_scale = x_scale  # keep aspect
+        ws.insert_image(
+            start_row, start_col, str(wlp),
+            {"x_scale": x_scale, "y_scale": y_scale, "object_position": 2}
+        )
+        # Row height to fit image tightly (no huge gap)
+        scaled_h_px = img_h_px * y_scale
+        ws.set_row(start_row, int(scaled_h_px * 0.75))  # px→pt approx
+        return start_row + 1  # next row is for the title
     except Exception:
-        return start_row + 8
+        # Fallback small logo row
+        ws.set_row(start_row, 80)
+        ws.insert_image(start_row, start_col, str(wlp), {"x_scale": 0.5, "y_scale": 0.5, "object_position": 2})
+        return start_row + 1
 
 
 def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col: int) -> Tuple[int, int, int, int]:
-    """
-    Write df as an Excel table with banded rows & hyperlinks (فتح الرابط).
-    Returns (first_row, first_col, last_row, last_col).
-    """
+    """Write df as formatted Excel Table with links labeled 'فتح الرابط'."""
     hdr_fmt = workbook.add_format({"align": "right", "bold": True})
     fmt_text = workbook.add_format({"align": "right"})
     fmt_date = workbook.add_format({"align": "right", "num_format": "yyyy-mm-dd"})
     fmt_num  = workbook.add_format({"align": "right", "num_format": "#,##0.00"})
     fmt_link = workbook.add_format({"font_color": "blue", "underline": 1, "align": "right"})
 
-    r0 = start_row
-    c0 = start_col
+    r0, c0 = start_row, start_col
+
     # headers
     for j, col in enumerate(df.columns):
         ws.write(r0, c0 + j, col, hdr_fmt)
+
     # body
     for i in range(len(df)):
         for j, col in enumerate(df.columns):
@@ -332,17 +354,20 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
                 else:
                     ws.write(r0 + 1 + i, c0 + j, sval, fmt_text)
 
-    r1 = r0 + len(df)  # last data row index
+    r1 = r0 + len(df)
     c1 = c0 + len(df.columns) - 1
-    # Excel Table
-    columns_spec = [{"header": str(c)} for c in df.columns]
-    ws.add_table(r0, c0, r1, c1, {"style": "Table Style Medium 9", "columns": columns_spec})
+
+    ws.add_table(r0, c0, r1, c1, {
+        "style": "Table Style Medium 9",
+        "columns": [{"header": str(c)} for c in df.columns]
+    })
     ws.freeze_panes(r0 + 1, c0)
-    # Auto width
-    for j, col in enumerate(df.columns):
-        series = df[col]
-        max_len = max([len(str(col))] + [len(str(v)) for v in series.values])
-        ws.set_column(c0 + j, c0 + j, min(max_len + 4, 60))
+
+    # column widths
+    widths_chars = _estimate_col_widths_chars(df)
+    for j, w in enumerate(widths_chars):
+        ws.set_column(c0 + j, c0 + j, w)
+
     return r0, c0, r1, c1
 
 
@@ -356,28 +381,24 @@ def _auto_excel_sheet(writer, df: pd.DataFrame, sheet_name: str, title_line: str
         ws = wb.add_worksheet(safe_name)
         writer.sheets[safe_name] = ws
 
-        # 1) Wide logo block
         cur_row = 0
         if put_logo:
-            cur_row = _insert_wide_logo(ws, start_row=cur_row, col=0)
+            # Logo full width, then title next row
+            cur_row = _insert_wide_logo(ws, df_x, start_row=cur_row, start_col=0)
 
-        # 2) Big merged title from first to last column
+        # Title merged across all columns (right after logo)
         ncols = max(1, len(df_x.columns))
-        title_fmt = wb.add_format({
-            "bold": True, "align": "center", "valign": "vcenter",
-            "font_size": 16
-        })
+        title_fmt = wb.add_format({"bold": True, "align": "center", "valign": "vcenter", "font_size": 16})
         ws.merge_range(cur_row, 0, cur_row, ncols-1, title_line, title_fmt)
-        ws.set_row(cur_row, 30)
+        ws.set_row(cur_row, 28)
         cur_row += 1
 
-        # 3) One clear blank row under the title
-        ws.set_row(cur_row, 18)
+        # One blank row only
+        ws.set_row(cur_row, 16)
         cur_row += 1
 
-        # 4) Table starts now (first col to last col)
+        # Table
         _write_excel_table(ws, wb, df_x, start_row=cur_row, start_col=0)
-
         ws.set_zoom(115)
         ws.set_margins(left=0.3, right=0.3, top=0.5, bottom=0.5)
     else:
@@ -420,14 +441,15 @@ def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], title_line: st
 
             cur_row = 0
             if put_logo:
-                cur_row = _insert_wide_logo(ws, start_row=cur_row, col=0)
+                # Use the widest section to scale logo nicely
+                widest_df = max(dfs.values(), key=lambda d: len(d.columns))
+                cur_row = _insert_wide_logo(ws, widest_df, start_row=cur_row, start_col=0)
 
-            # Main title merged across max columns
             max_cols = max((len(df.columns) for df in dfs.values()), default=1)
             big_title_fmt = wb.add_format({"bold": True, "align": "center", "valign": "vcenter", "font_size": 16})
             ws.merge_range(cur_row, 0, cur_row, max_cols-1, title_line, big_title_fmt)
-            ws.set_row(cur_row, 30)
-            cur_row += 2  # blank row
+            ws.set_row(cur_row, 28)
+            cur_row += 2  # one blank row
 
             for section_title, df in dfs.items():
                 title_fmt = wb.add_format({"bold": True, "align": "right", "font_size": 12})
@@ -437,7 +459,6 @@ def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], title_line: st
                 cur_row += len(df) + 3
             ws.set_zoom(115)
         else:
-            # Basic fallback
             out = []
             for sec, df in dfs.items():
                 title_row = pd.DataFrame([[sec] + [""] * (len(df.columns) - 1)], columns=df.columns)
@@ -453,13 +474,9 @@ def make_csv_utf8(df: pd.DataFrame) -> bytes:
 
 
 # =========================================================
-# PDF helpers (clear + zebra + anchors + dynamic title)
+# PDF helpers (clean + zebra + anchors + dynamic title)
 # =========================================================
 def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[str]] = None) -> pd.DataFrame:
-    """
-    Format numbers for PDF display; keep columns listed in no_comma_cols as-is
-    (e.g., 'رقم الشيك' without thousands separators).
-    """
     no_comma_cols = set([str(c).strip() for c in (no_comma_cols or [])])
     out = df.copy()
     for c in out.columns:
@@ -522,38 +539,16 @@ def _pdf_header_elements(title_line: str) -> Tuple[List, float]:
     return elements, avail_w
 
 
-def _pdf_table(
-    df: pd.DataFrame,
-    title: str = "",
-    max_col_width: int = 120,
-    font_size: float = 8.0,
-    avail_width: Optional[float] = None
-) -> list:
-    """Clean white body, dark header, zebra banding, clickable anchors."""
+def _pdf_table(df: pd.DataFrame, title: str = "", max_col_width: int = 120, font_size: float = 8.0, avail_width: Optional[float] = None) -> list:
     font_name, _ = register_arabic_font()
-    hdr_style = ParagraphStyle(
-        name="Hdr", fontName=font_name, fontSize=font_size+0.6,
-        textColor=colors.whitesmoke, alignment=1, leading=font_size+1.8
-    )
-    cell_rtl  = ParagraphStyle(
-        name="CellR", fontName=font_name, fontSize=font_size,
-        leading=font_size+1.5, alignment=2, textColor=colors.black
-    )
-    cell_ltr  = ParagraphStyle(
-        name="CellL", fontName=font_name, fontSize=font_size,
-        leading=font_size+1.5, alignment=0, textColor=colors.black
-    )
-    link_style = ParagraphStyle(
-        name="Link", fontName=font_name, fontSize=font_size, alignment=2,
-        textColor=colors.HexColor("#1a56db"), underline=True
-    )
+    hdr_style = ParagraphStyle(name="Hdr", fontName=font_name, fontSize=font_size+0.6, textColor=colors.whitesmoke, alignment=1, leading=font_size+1.8)
+    cell_rtl  = ParagraphStyle(name="CellR", fontName=font_name, fontSize=font_size, leading=font_size+1.5, alignment=2, textColor=colors.black)
+    cell_ltr  = ParagraphStyle(name="CellL", fontName=font_name, fontSize=font_size, leading=font_size+1.5, alignment=0, textColor=colors.black)
+    link_style = ParagraphStyle(name="Link", fontName=font_name, fontSize=font_size, alignment=2, textColor=colors.HexColor("#1a56db"), underline=True)
 
     blocks = []
     if title:
-        tstyle = ParagraphStyle(
-            name="Sec", fontName=font_name, fontSize=font_size+2,
-            alignment=2, textColor=colors.HexColor("#1E3A8A")
-        )
+        tstyle = ParagraphStyle(name="Sec", fontName=font_name, fontSize=font_size+2, alignment=2, textColor=colors.HexColor("#1E3A8A"))
         blocks += [Paragraph(shape_arabic(title), tstyle), Spacer(1, 4)]
 
     headers = [Paragraph(shape_arabic(c) if looks_arabic(c) else str(c), hdr_style) for c in df.columns]
@@ -756,7 +751,7 @@ def main() -> None:
             st.markdown('<h3 class="hsec">ملخص المشروع</h3>', unsafe_allow_html=True)
             fin_panel_two_tables(left_items=left_items, right_items=right_items)
 
-        # Titles for exports
+        # Titles for exports (←)
         title_summary = compose_pdf_title(company_name, project_name, "ملخص", g_date_from, g_date_to)
         title_flow    = compose_pdf_title(company_name, project_name, "دفتر التدفق", g_date_from, g_date_to)
         title_all     = compose_pdf_title(company_name, project_name, "ملخص + دفتر التدفق", g_date_from, g_date_to)
