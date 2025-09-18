@@ -275,19 +275,27 @@ def _compose_title(company: str, project: str, data_type: str, dfrom, dto) -> st
 
 def _insert_wide_logo(ws, start_row: int = 0, col: int = 0) -> int:
     """
-    Insert the wide logo (if exists) with safe scaling and return the next
-    empty row to start the title. Ensures it never covers the table.
+    Insert the wide logo safely and return the first empty row *after*
+    the logo area. We also increase the heights of the rows the image
+    sits on so the next content never overlaps.
     """
     wlp = _wide_logo_path()
     if not wlp:
         return start_row
     try:
-        # Fixed height around 120px (≈ 90 points); scale width proportional.
-        options = {"x_scale": 0.6, "y_scale": 0.6, "object_position": 1}  # move and size with cells
+        # Put the image at row 0 with offsets and keep it on top rows.
+        options = {
+            "x_scale": 0.62, "y_scale": 0.62,
+            "x_offset": 2, "y_offset": 2,
+            "object_position": 2,  # move with cells, don't resize
+        }
         ws.insert_image(start_row, col, str(wlp), options)
-        return start_row + 7  # leave several rows for the image height
+        # Make the first 10 rows a bit taller so image has space.
+        for r in range(start_row, start_row + 10):
+            ws.set_row(r, 26)
+        return start_row + 11  # start title clearly *below* the logo block
     except Exception:
-        return start_row + 2
+        return start_row + 8
 
 
 def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col: int) -> Tuple[int, int, int, int]:
@@ -295,7 +303,6 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
     Write df as an Excel table with banded rows & hyperlinks (فتح الرابط).
     Returns (first_row, first_col, last_row, last_col).
     """
-    # Formats
     hdr_fmt = workbook.add_format({"align": "right", "bold": True})
     fmt_text = workbook.add_format({"align": "right"})
     fmt_date = workbook.add_format({"align": "right", "num_format": "yyyy-mm-dd"})
@@ -312,10 +319,9 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
         for j, col in enumerate(df.columns):
             val = df.iloc[i, j]
             colname = str(col)
-            if isinstance(val, str) and val.startswith(("http://", "https://")):
-                ws.write_url(r0 + 1 + i, c0 + j, val, fmt_link, string="فتح الرابط")
-            elif "رابط" in colname and isinstance(val, str) and val.strip():
-                ws.write_url(r0 + 1 + i, c0 + j, val, fmt_link, string="فتح الرابط")
+            sval = "" if pd.isna(val) else str(val)
+            if sval.startswith(("http://", "https://")) or ("رابط" in colname and sval):
+                ws.write_url(r0 + 1 + i, c0 + j, sval, fmt_link, string="فتح الرابط")
             else:
                 if pd.api.types.is_datetime64_any_dtype(df[col]):
                     if pd.notna(val): ws.write_datetime(r0 + 1 + i, c0 + j, pd.to_datetime(val), fmt_date)
@@ -324,14 +330,13 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
                     if pd.notna(val): ws.write_number(r0 + 1 + i, c0 + j, float(val), fmt_num)
                     else: ws.write_blank(r0 + 1 + i, c0 + j, None, fmt_text)
                 else:
-                    ws.write(r0 + 1 + i, c0 + j, "" if pd.isna(val) else str(val), fmt_text)
+                    ws.write(r0 + 1 + i, c0 + j, sval, fmt_text)
 
     r1 = r0 + len(df)  # last data row index
     c1 = c0 + len(df.columns) - 1
-    # Turn into an Excel Table
+    # Excel Table
     columns_spec = [{"header": str(c)} for c in df.columns]
     ws.add_table(r0, c0, r1, c1, {"style": "Table Style Medium 9", "columns": columns_spec})
-    # Freeze panes under header row
     ws.freeze_panes(r0 + 1, c0)
     # Auto width
     for j, col in enumerate(df.columns):
@@ -351,26 +356,31 @@ def _auto_excel_sheet(writer, df: pd.DataFrame, sheet_name: str, title_line: str
         ws = wb.add_worksheet(safe_name)
         writer.sheets[safe_name] = ws
 
+        # 1) Wide logo block
         cur_row = 0
         if put_logo:
             cur_row = _insert_wide_logo(ws, start_row=cur_row, col=0)
 
-        # Title merged across all columns
+        # 2) Big merged title from first to last column
+        ncols = max(1, len(df_x.columns))
         title_fmt = wb.add_format({
             "bold": True, "align": "center", "valign": "vcenter",
-            "font_size": 14
+            "font_size": 16
         })
-        ncols = max(1, len(df_x.columns))
         ws.merge_range(cur_row, 0, cur_row, ncols-1, title_line, title_fmt)
-        ws.set_row(cur_row, 28)
-        cur_row += 2  # blank row after title
+        ws.set_row(cur_row, 30)
+        cur_row += 1
 
-        # Write table
+        # 3) One clear blank row under the title
+        ws.set_row(cur_row, 18)
+        cur_row += 1
+
+        # 4) Table starts now (first col to last col)
         _write_excel_table(ws, wb, df_x, start_row=cur_row, start_col=0)
-        ws.set_zoom(110)
+
+        ws.set_zoom(115)
         ws.set_margins(left=0.3, right=0.3, top=0.5, bottom=0.5)
     else:
-        # Fallback: basic write (no image merge)
         df_x.to_excel(writer, index=False, sheet_name=safe_name)
 
 
@@ -398,9 +408,6 @@ def make_excel_combined_two_sheets(dfs: Dict[str, pd.DataFrame], titles: Dict[st
 
 
 def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], title_line: str, sheet_name="تقرير_موحد", put_logo: bool = True) -> Optional[bytes]:
-    """
-    Logo + big title at top; then each section title merged + table below it.
-    """
     engine = _pick_excel_engine()
     if engine is None:
         return None
@@ -415,12 +422,12 @@ def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], title_line: st
             if put_logo:
                 cur_row = _insert_wide_logo(ws, start_row=cur_row, col=0)
 
-            big_title_fmt = wb.add_format({"bold": True, "align": "center", "valign": "vcenter", "font_size": 14})
-            # compute max columns among sections to merge properly
+            # Main title merged across max columns
             max_cols = max((len(df.columns) for df in dfs.values()), default=1)
+            big_title_fmt = wb.add_format({"bold": True, "align": "center", "valign": "vcenter", "font_size": 16})
             ws.merge_range(cur_row, 0, cur_row, max_cols-1, title_line, big_title_fmt)
-            ws.set_row(cur_row, 28)
-            cur_row += 2
+            ws.set_row(cur_row, 30)
+            cur_row += 2  # blank row
 
             for section_title, df in dfs.items():
                 title_fmt = wb.add_format({"bold": True, "align": "right", "font_size": 12})
@@ -428,7 +435,7 @@ def make_excel_single_sheet_stacked(dfs: Dict[str, pd.DataFrame], title_line: st
                 cur_row += 2
                 _write_excel_table(ws, wb, df, start_row=cur_row, start_col=0)
                 cur_row += len(df) + 3
-            ws.set_zoom(110)
+            ws.set_zoom(115)
         else:
             # Basic fallback
             out = []
@@ -448,9 +455,18 @@ def make_csv_utf8(df: pd.DataFrame) -> bytes:
 # =========================================================
 # PDF helpers (clear + zebra + anchors + dynamic title)
 # =========================================================
-def _format_numbers_for_display(df: pd.DataFrame) -> pd.DataFrame:
+def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[str]] = None) -> pd.DataFrame:
+    """
+    Format numbers for PDF display; keep columns listed in no_comma_cols as-is
+    (e.g., 'رقم الشيك' without thousands separators).
+    """
+    no_comma_cols = set([str(c).strip() for c in (no_comma_cols or [])])
     out = df.copy()
     for c in out.columns:
+        c_str = str(c).strip()
+        if c_str in no_comma_cols:
+            out[c] = out[c].astype(str)
+            continue
         if pd.api.types.is_numeric_dtype(out[c]):
             out[c] = out[c].map(lambda x: "" if pd.isna(x) else f"{float(x):,.2f}")
         else:
@@ -554,7 +570,6 @@ def _pdf_table(
                 cells.append(Paragraph(shape_arabic(sval) if is_ar else sval, cell_rtl if is_ar else cell_ltr))
         rows.append(cells)
 
-    # column widths (fit then scale)
     col_widths = []
     for c in df.columns:
         max_len = max(len(str(c)), df[c].astype(str).map(len).max())
@@ -788,7 +803,10 @@ def main() -> None:
         st.download_button("تنزيل الدفتر كـ CSV", csv_flow,
                            file_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}.csv"),
                            mime="text/csv")
-        pdf_flow = make_pdf_bytes(_format_numbers_for_display(df_flow_display), title_line=title_flow)
+
+        # PDF: keep رقم الشيك without commas
+        pdf_flow_df = _format_numbers_for_display(df_flow_display, no_comma_cols=["رقم الشيك"])
+        pdf_flow = make_pdf_bytes(pdf_flow_df, title_line=title_flow)
         st.download_button("تنزيل الدفتر كـ PDF", pdf_flow,
                            file_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}.pdf"),
                            mime="application/pdf")
@@ -814,9 +832,11 @@ def main() -> None:
                                file_name=_safe_filename(f"تقرير_مالي_{company_name}_{project_name}_ورقة_واحدة.xlsx"),
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-        pdf_all = make_pdf_combined(_format_numbers_for_display(df_summary),
-                                    _format_numbers_for_display(df_flow_display),
-                                    title_line=title_all)
+        pdf_all = make_pdf_combined(
+            _format_numbers_for_display(df_summary),
+            _format_numbers_for_display(df_flow_display, no_comma_cols=["رقم الشيك"]),
+            title_line=title_all
+        )
         st.download_button("PDF موحّد (ملخص + دفتر)", pdf_all,
                            file_name=_safe_filename(f"تقرير_مالي_{company_name}_{project_name}.pdf"),
                            mime="application/pdf")
