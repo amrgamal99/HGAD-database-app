@@ -139,16 +139,13 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
                     if pd.isna(val):
                         return "شهاده تامينات جاري"
                     s = str(val).strip()
-                    # match leading number (Latin or Arabic-Indic)
-                    m = re.match(r'^\s*([0-9\u0660-\u0669\u06F0-\u06F9]+)', s)
+                    # find first number (Latin or Arabic-Indic) anywhere in the string
+                    m = re.search(r'([0-9\u0660-\u0669\u06F0-\u06F9]+)', s)
                     if m:
                         num = m.group(1)
-                        return f"{num} شهاده تامينات جاري"
-                    # if no leading number, try to find any number inside and preserve it
-                    m2 = re.search(r'([0-9\u0660-\u0669\u06F0-\u06F9]+)', s)
-                    if m2:
-                        return f"{m2.group(1)} شهاده تامينات جاري"
-                    # fallback to plain label
+                        # place the number after "جاري" for clarity
+                        return f"شهاده تامينات جاري {num}"
+                    # fallback to plain label when no number found
                     return "شهاده تامينات جاري"
 
                 df["اسم الشهادة"] = df["اسم الشهادة"].apply(normalize_name)
