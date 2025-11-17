@@ -915,17 +915,29 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 
-# df = ...  # DataFrame جاهزة للعرض
 
-# رابط ملف Drive (ضع الرابط الفعلي هنا)
-DRIVE_FILE_URL = "https://drive.google.com/file/d/1K4KoKaUpS0FzqriESs9v6tbc7tY4Biwt/view?usp=drive_link"
+def insert_drive_icon_column(df: pd.DataFrame, drive_url: str, title: str = "التدفق نقدي الاجمالي الي شهر 11-2025") -> pd.DataFrame:
+    """
+    Insert a left-most column containing a clickable icon (HTML anchor).
+    Returns a new DataFrame suitable for rendering with df.to_html(escape=False).
+    """
+    if df is None:
+        return df
+    if df.empty:
+        return df.copy()
+    out = df.copy()
+    link_html = f'<a href="{drive_url}" target="_blank" title="{title}">📁</a>'
+    out.insert(0, " ", [link_html] * len(out))
+    return out
 
-# أدخل عمود أيقونة في أقصى اليسار — عند النقر يفتح الرابط في تبويب جديد
-df.insert(
-    0,
-    " ",  # عنوان العمود الفارغ لعرض الأيقونة على اليسار
-    df.apply(lambda _: f'<a href="{DRIVE_FILE_URL}" target="_blank" title="التدفق نقدي الاجمالي الي  31-10-2025">📁</a>', axis=1)
-)
+# Example usage: run this only after `df` exists (where you currently display the table)
+DRIVE_FILE_URL = "https://drive.google.com/file/d/FILE_ID/view?usp=sharing"  # <- set real URL
 
-# لعرض الأيقونة كـ HTML اجعل العرض باستخدام HTML (st.markdown مع to_html)
-st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
+if 'df' in locals():
+    df_with_icon = insert_drive_icon_column(df, DRIVE_FILE_URL)
+    # If you want clickable icons use HTML rendering:
+    st.markdown(df_with_icon.to_html(escape=False, index=False), unsafe_allow_html=True)
+    # If you prefer st.dataframe (non-clickable icons), use:
+    # st.dataframe(df_with_icon)
+else:
+    st.error("DataFrame 'df' is not defined here. Move this block to after you build `df`.")
