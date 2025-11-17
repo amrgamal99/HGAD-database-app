@@ -99,7 +99,8 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
                 .execute()
             )
             data = [resp.data] if resp.data else []
-        elif tbl in ["guarantee", "invoice", "checks"]:
+        elif tbl in ["guarantee", "invoice", "checks", "social_insurance_certificate"]:
+            # treat social_insurance_certificate same as invoice (filtered by companyid+contractid)
             resp = (
                 supabase.table(tbl)
                 .select("*")

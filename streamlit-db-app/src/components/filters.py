@@ -22,6 +22,7 @@ def create_type_dropdown():
         "خطابات الضمان": "guarantee",
         "المستخلصات": "invoice",
         "الشيكات / التحويلات": "checks",
+        "شهادة تامينات": "social_insurance_certificate",  # <-- new entry, behaves like "المستخلصات"
     }
     display_list = list(display_to_key.keys())
     display_choice = st.selectbox("اختر نوع البيانات", options=display_list, index=0 if display_list else None, placeholder="— اختر —")
