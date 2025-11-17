@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
+import re
 
 # تهيئة عميل Supabase مرة واحدة
 @st.cache_resource
@@ -134,7 +135,23 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
         # If it's the social_insurance_certificate table, normalize the "اسم الشهادة" values
         if tbl == "social_insurance_certificate" and "اسم الشهادة" in df.columns:
             try:
-                df["اسم الشهادة"] = "شهاده تامينات جاري"
+                def normalize_name(val):
+                    if pd.isna(val):
+                        return "شهاده تامينات جاري"
+                    s = str(val).strip()
+                    # match leading number (Latin or Arabic-Indic)
+                    m = re.match(r'^\s*([0-9\u0660-\u0669\u06F0-\u06F9]+)', s)
+                    if m:
+                        num = m.group(1)
+                        return f"{num} شهاده تامينات جاري"
+                    # if no leading number, try to find any number inside and preserve it
+                    m2 = re.search(r'([0-9\u0660-\u0669\u06F0-\u06F9]+)', s)
+                    if m2:
+                        return f"{m2.group(1)} شهاده تامينات جاري"
+                    # fallback to plain label
+                    return "شهاده تامينات جاري"
+
+                df["اسم الشهادة"] = df["اسم الشهادة"].apply(normalize_name)
             except Exception:
                 pass
 
