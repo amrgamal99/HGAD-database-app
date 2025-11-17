@@ -4,8 +4,27 @@ from db.connection import fetch_companies, fetch_projects_by_company
 
 def create_company_dropdown(conn):
     companies_df = fetch_companies(conn)
-    companies = companies_df["اسم الشركة"].tolist()
-    return st.selectbox("اختر الشركة", options=companies, index=0 if companies else None, placeholder="— اختر —")
+    companies = (
+        companies_df["اسم الشركة"]
+        .dropna()
+        .drop_duplicates()
+        .sort_values(key=lambda s: s.str.lower())
+        .tolist()
+    )
+
+    # search box with icon — filters by prefix (starts with)
+    query = st.text_input("🔍 اكتب بداية اسم الشركة", value="", placeholder="اكتب بداية اسم الشركة ...", key="company_search")
+    if query:
+        q = str(query).strip().lower()
+        filtered = [c for c in companies if c.lower().startswith(q)]
+    else:
+        filtered = companies
+
+    if not filtered:
+        st.info(f"لا توجد شركات تبدأ بـ «{query}»") if query else st.info("لا توجد شركات.")
+        return None
+
+    return st.selectbox("اختر الشركة", options=filtered, index=0 if filtered else None, placeholder="— اختر —")
 
 def create_project_dropdown(conn, company_name: str):
     if not company_name:
