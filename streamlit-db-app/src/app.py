@@ -727,7 +727,7 @@ def main() -> None:
 
     with st.sidebar:
         # Drive link (left-most beautiful anchor with icon + title)
-        DRIVE_FILE_URL = "https://drive.google.com/file/d/1K4KoKaUpS0FzqriESs9v6tbc7tY4Biwt/view?usp=drive_link"
+        DRIVE_FILE_URL = "https://drive.google.com/file/d/1BBjG_OWNr__BpDN6MOsj_VG8M0D8_b78/view?usp=drive_link"
         st.markdown(
             f'''
             <div style="padding:8px 6px 12px 6px; display:flex; align-items:center; justify-content:flex-start;">
