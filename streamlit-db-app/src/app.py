@@ -914,7 +914,23 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+# ...existing code...
+# df = ...  # DataFrame جاهزة للعرض
 
+# رابط ملف Drive (ضع الرابط الفعلي هنا)
+DRIVE_FILE_URL = "https://drive.google.com/file/d/FILE_ID/view?usp=sharing"
+
+# أدخل عمود أيقونة في أقصى اليسار — عند النقر يفتح الرابط في تبويب جديد
+df.insert(
+    0,
+    " ",  # عنوان العمود الفارغ لعرض الأيقونة على اليسار
+    df.apply(lambda _: f'<a href="{DRIVE_FILE_URL}" target="_blank" title="التدفق نقدي الاجمالي الي شهر 11-2025">📁</a>', axis=1)
+)
+
+# لعرض الأيقونة كـ HTML اجعل العرض باستخدام HTML (st.markdown مع to_html)
+st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+# ...existing code...
 
 def insert_drive_icon_column(df: pd.DataFrame, drive_url: str, title: str = "التدفق نقدي الاجمالي الي شهر 11-2025") -> pd.DataFrame:
     """
