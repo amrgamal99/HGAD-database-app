@@ -726,15 +726,16 @@ def main() -> None:
         return
 
     with st.sidebar:
-        # Drive link icon (left-most). Opens in new tab; title shows the Arabic filename.
+        # Drive link (left-most beautiful anchor with icon + title)
         DRIVE_FILE_URL = "https://drive.google.com/file/d/1K4KoKaUpS0FzqriESs9v6tbc7tY4Biwt/view?usp=drive_link"
         st.markdown(
             f'''
-            <div style="display:flex; align-items:center; justify-content:flex-start; gap:8px; margin-bottom:8px;">
+            <div style="padding:8px 6px 12px 6px; display:flex; align-items:center; justify-content:flex-start;">
               <a href="{DRIVE_FILE_URL}" target="_blank" rel="noopener noreferrer"
                  title="التدفق نقدي الاجمالي الي  31-10-2025"
-                 style="text-decoration:none; font-size:20px;">
-                📁
+                 style="display:inline-flex; gap:10px; align-items:center; text-decoration:none; padding:6px 10px; border-radius:10px; background:linear-gradient(90deg, rgba(37,99,235,0.10), rgba(37,99,235,0.04)); border:1px solid rgba(37,99,235,0.10);">
+                <span style="font-size:20px; line-height:1.0;">📁</span>
+                <span style="font-weight:800; color:#dbeafe; font-size:13px;">التدفق نقدي الاجمالي الي  31-10-2025</span>
               </a>
             </div>
             ''',
