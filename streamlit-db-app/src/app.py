@@ -726,6 +726,21 @@ def main() -> None:
         return
 
     with st.sidebar:
+        # Drive link icon (left-most). Opens in new tab; title shows the Arabic filename.
+        DRIVE_FILE_URL = "https://drive.google.com/file/d/1K4KoKaUpS0FzqriESs9v6tbc7tY4Biwt/view?usp=drive_link"
+        st.markdown(
+            f'''
+            <div style="display:flex; align-items:center; justify-content:flex-start; gap:8px; margin-bottom:8px;">
+              <a href="{DRIVE_FILE_URL}" target="_blank" rel="noopener noreferrer"
+                 title="التدفق نقدي الاجمالي الي  31-10-2025"
+                 style="text-decoration:none; font-size:20px;">
+                📁
+              </a>
+            </div>
+            ''',
+            unsafe_allow_html=True,
+        )
+
         st.title("عوامل التصفية")
         company_name = create_company_dropdown(conn)
         project_name = create_project_dropdown(conn, company_name)
