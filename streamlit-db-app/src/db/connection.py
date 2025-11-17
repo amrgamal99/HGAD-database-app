@@ -20,7 +20,12 @@ def fetch_companies(supabase: Client) -> pd.DataFrame:
         resp = supabase.table("company").select("companyname").execute()
         df = pd.DataFrame(resp.data or [])
         df = df.rename(columns={"companyname": "اسم الشركة"})
-        return df.drop_duplicates()
+        # sort alphabetically
+        if not df.empty:
+            df = df.drop_duplicates().sort_values("اسم الشركة", key=lambda s: s.str.lower())
+        else:
+            df = df.drop_duplicates()
+        return df
     except Exception:
         return pd.DataFrame(columns=["اسم الشركة"])
 
@@ -118,12 +123,30 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
             df.drop(columns=[c for c in df.columns if c.lower().endswith("id")],
                     inplace=True, errors="ignore")
 
+        # format date-like columns
         for col in df.columns:
             if "تاريخ" in col or "إصدار" in col:
                 try:
                     df[col] = pd.to_datetime(df[col]).dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
+
+        # If it's the social_insurance_certificate table, normalize the "اسم الشهادة" values
+        if tbl == "social_insurance_certificate" and "اسم الشهادة" in df.columns:
+            try:
+                df["اسم الشهادة"] = "شهاده تامينات جاري"
+            except Exception:
+                pass
+
+        # Sort by the first date-like column (old → new) for invoice/checks/social_insurance_certificate
+        if tbl in ["invoice", "checks", "social_insurance_certificate"] and not df.empty:
+            date_cols = [c for c in df.columns if "تاريخ" in c or "إصدار" in c]
+            if date_cols:
+                try:
+                    df = df.sort_values(by=date_cols[0], ascending=True, na_position="last")
+                except Exception:
+                    pass
+
         return df
     except Exception as e:
         st.caption(f"⚠️ fetch_data error: {e}")
