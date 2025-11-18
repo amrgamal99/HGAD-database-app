@@ -6,6 +6,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, Tuple, Dict, List
+import urllib.parse  # <--- added
 
 import pandas as pd
 import streamlit as st
@@ -504,18 +505,53 @@ def _create_zip_from_links(df: pd.DataFrame, link_col: str) -> Tuple[Optional[by
             try:
                 resp = requests.get(direct, stream=True, timeout=30)
                 resp.raise_for_status()
+
+                # Try to obtain a proper filename and decode percent-encoding / latin1 -> utf-8 if needed
                 fname = None
                 cd = resp.headers.get("content-disposition", "") or ""
-                m = re.search(r'filename\*=UTF-8\'\'(.+)$', cd)
+
+                # RFC 5987 encoded filename*: filename*=UTF-8''%D8%A7%D8%B3%D9%85.pdf
+                m = re.search(r"filename\*=([^']*)''(.+)", cd)
                 if m:
-                    fname = requests.utils.unquote(m.group(1))
-                else:
+                    enc = m.group(1).strip().upper() or "UTF-8"
+                    raw = m.group(2)
+                    try:
+                        fname = urllib.parse.unquote(raw)
+                    except Exception:
+                        fname = raw
+
+                # Fallback to simple filename="..." or filename=...
+                if not fname:
                     m2 = re.search(r'filename="?([^";]+)"?', cd)
                     if m2:
-                        fname = m2.group(1)
+                        raw2 = m2.group(1)
+                        # try to decode latin1 -> utf-8 (common issue with headers carrying utf-8 bytes)
+                        try:
+                            fname = raw2.encode("latin-1").decode("utf-8")
+                        except Exception:
+                            try:
+                                fname = urllib.parse.unquote(raw2)
+                            except Exception:
+                                fname = raw2
+
+                # If still no filename, derive from URL or index
                 if not fname:
-                    fid = re.search(r'/d/([a-zA-Z0-9_-]{10,})', share_url)
-                    fname = f"file_{idx}_{fid.group(1) if fid else idx}"
+                    # try derive from end of URL (after last slash)
+                    tail = direct.split("/")[-1]
+                    tail = tail.split("?")[0] or ""
+                    if tail:
+                        try:
+                            fname = urllib.parse.unquote(tail)
+                        except Exception:
+                            fname = tail
+                    else:
+                        fid = re.search(r'/d/([a-zA-Z0-9_-]{10,})', share_url)
+                        fname = f"file_{idx}_{fid.group(1) if fid else idx}"
+
+                # ensure fname is a str and sanitized minimally
+                if not isinstance(fname, str):
+                    fname = str(fname)
+
                 zf.writestr(fname, resp.content)
             except Exception as e:
                 errors.append((idx, str(e)))
@@ -913,16 +949,22 @@ def main() -> None:
             btn_label = "⬇️ تنزيل الكل (ZIP)"
             if type_label and "مستخلص" in str(type_label):
                 btn_label = "⬇️ تنزيل كل المستخلصات (ZIP)"
-            if st.button(btn_label):
+
+            # Create the ZIP then show a single download button (spinner while creating)
+            with st.spinner("جارٍ إنشاء أرشيف ZIP ..."):
                 zip_bytes, errors = _create_zip_from_links(df_flow_display, link_col)
-                if not zip_bytes:
-                    st.error("فشل إنشاء ملف ZIP. تحقق من الروابط أو الاتصال.")
-                else:
-                    st.download_button(label="تحميل ملف ZIP", data=zip_bytes,
-                                       file_name=_safe_filename(f"{type_label or 'الملفات'}_{company_name}_{project_name}.zip"),
-                                       mime="application/zip")
-                    if errors:
-                        st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
+
+            if not zip_bytes:
+                st.error("فشل إنشاء ملف ZIP. تحقق من الروابط أو الاتصال.")
+                if errors:
+                    st.warning(f"أخطاء: {len(errors)} حالات.")
+            else:
+                st.download_button(label=btn_label,
+                                   data=zip_bytes,
+                                   file_name=_safe_filename(f"{type_label or 'الملفات'}_{company_name}_{project_name}.zip"),
+                                   mime="application/zip")
+                if errors:
+                    st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
 
         # Combined
         st.markdown("### تنزيل تقرير موحّد")
@@ -1007,16 +1049,19 @@ def main() -> None:
         btn_label = "⬇️ تنزيل الكل (ZIP)"
         if type_label and "مستخلص" in str(type_label):
             btn_label = "⬇️ تنزيل كل المستخلصات (ZIP)"
-        if st.button(btn_label):
+
+        # Create the ZIP then show a single download button (spinner while creating)
+        with st.spinner("جارٍ إنشاء أرشيف ZIP ..."):
             zip_bytes, errors = _create_zip_from_links(df, link_col)
-            if not zip_bytes:
-                st.error("فشل إنشاء ملف ZIP. تحقق من الروابط أو الاتصال.")
-            else:
-                st.download_button(label="تحميل ملف ZIP", data=zip_bytes,
-                                   file_name=_safe_filename(f"{type_label or 'الملفات'}_{company_name}_{project_name}.zip"),
-                                   mime="application/zip")
-                if errors:
-                    st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
+
+        if not zip_bytes:
+            st.error("فشل إنشاء ملف ZIP. تحقق من الروابط أو الاتصال.")
+        else:
+            st.download_button(label="تحميل ملف ZIP", data=zip_bytes,
+                               file_name=_safe_filename(f"{type_label or 'الملفات'}_{company_name}_{project_name}.zip"),
+                               mime="application/zip")
+            if errors:
+                st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
 
 
 if __name__ == "__main__":
