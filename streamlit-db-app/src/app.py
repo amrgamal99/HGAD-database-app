@@ -161,16 +161,15 @@ html, body{
   color:var(--text) !important; background:var(--bg) !important;
 }
 
-/* Sidebar always open + style */
+/* Sidebar style - keep it visible and fixed width */
 [data-testid="stSidebar"]{
   transform:none !important; visibility:visible !important;
   width:340px !important; min-width:340px !important;
   background: linear-gradient(180deg, #0b1220, #0a1020);
   border-inline-start: 1px solid var(--line);
 }
-[data-testid="collapsedControl"],button[kind="header"],
-button[title="Expand sidebar"],button[title="Collapse sidebar"],
-[data-testid="stSidebarCollapseButton"]{ display:none !important; }
+
+/* NOTE: removed rules that hid the collapse/expand controls so sidebar can show */
 
 /* Fancy separator */
 .hr-accent{ height:2px; border:0; background:linear-gradient(90deg, transparent, var(--accent), transparent); margin: 8px 0 14px; }
