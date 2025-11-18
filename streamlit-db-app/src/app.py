@@ -921,7 +921,6 @@ def main() -> None:
                                 st.error("فشل إنشاء ZIP. تحقق من الروابط أو الإتصال.")
                     except Exception as e:
                         st.error(f"حدث خطأ أثناء العملية: {e}")
-# ...existing code...
     with st.container():
         st.markdown('<div class="date-box"><div class="date-row">', unsafe_allow_html=True)
         c1, c2 = st.columns([1, 1], gap="small")
@@ -1006,6 +1005,32 @@ def main() -> None:
         st.download_button("PDF موحّد (ملخص + دفتر)", pdf_all,
                            file_name=_safe_filename(f"تقرير_مالي_{company_name}_{project_name}.pdf"),
                            mime="application/pdf")
+
+        # -----------------------
+        # زر تنزيل كل الشيكات والمستخلصات (ZIP) — يظهر في منطقة التحميل بعد تنزيل PDF
+        # -----------------------
+        if company_name and project_name:
+            if st.button("⬇️ تنزيل شيكات ومستخلصات (ZIP)", key="dl_checks_invoices_fin"):
+                with st.spinner("جاري جلب روابط الشيكات والمستخلصات وضغطها في ملف ZIP ..."):
+                    try:
+                        df_checks = fetch_data(conn, company_name, project_name, "checks")
+                        df_invoice = fetch_data(conn, company_name, project_name, "invoice")
+                        combined = pd.concat([df_checks, df_invoice], ignore_index=True, sort=False).fillna("")
+                        urls_and_names = _gather_drive_links_from_df(combined)
+                        if not urls_and_names:
+                            st.warning("لم يتم العثور على أي روابط في جداول الشيكات أو المستخلصات.")
+                        else:
+                            zip_bytes, errors = _download_urls_to_zip(urls_and_names, zip_name=_safe_filename(f"{company_name}_{project_name}_شيكات_ومستخلصات.zip"))
+                            if zip_bytes and len(zip_bytes) > 0:
+                                st.download_button("تحميل ZIP شيكات و مستخلصات", data=zip_bytes,
+                                                   file_name=_safe_filename(f"{company_name}_{project_name}_شيكات_ومستخلصات.zip"),
+                                                   mime="application/zip", key="download_zip_fin")
+                                if errors:
+                                    st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
+                            else:
+                                st.error("فشل إنشاء ملف ZIP. تحقق من الروابط أو الإتصال.")
+                    except Exception as e:
+                        st.error(f"حدث خطأ أثناء العملية: {e}")
         return
 
     # =======================
@@ -1053,6 +1078,28 @@ def main() -> None:
                        file_name=_safe_filename(f"{type_key}_{company_name}_{project_name}.pdf"),
                        mime="application/pdf")
 
-
-if __name__ == "__main__":
-    main()
+    # -----------------------
+    # زر تنزيل كل الشيكات والمستخلصات (ZIP) — للأنواع العامة يظهر بعد زر تنزيل PDF
+    # -----------------------
+    if company_name and project_name:
+        if st.button("⬇️ تنزيل شيكات ومستخلصات (ZIP)", key="dl_checks_invoices_gen"):
+            with st.spinner("جاري جلب روابط الشيكات والمستخلصات وضغطها في ملف ZIP ..."):
+                try:
+                    df_checks = fetch_data(conn, company_name, project_name, "checks")
+                    df_invoice = fetch_data(conn, company_name, project_name, "invoice")
+                    combined = pd.concat([df_checks, df_invoice], ignore_index=True, sort=False).fillna("")
+                    urls_and_names = _gather_drive_links_from_df(combined)
+                    if not urls_and_names:
+                        st.warning("لم يتم العثور على أي روابط في جداول الشيكات أو المستخلصات.")
+                    else:
+                        zip_bytes, errors = _download_urls_to_zip(urls_and_names, zip_name=_safe_filename(f"{company_name}_{project_name}_شيكات_ومستخلصات.zip"))
+                        if zip_bytes and len(zip_bytes) > 0:
+                            st.download_button("تحميل ZIP شيكات و مستخلصات", data=zip_bytes,
+                                               file_name=_safe_filename(f"{company_name}_{project_name}_شيكات_ومستخلصات.zip"),
+                                               mime="application/zip", key="download_zip_gen")
+                            if errors:
+                                st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
+                        else:
+                            st.error("فشل إنشاء ملف ZIP. تحقق من الروابط أو الإتصال.")
+                except Exception as e:
+                    st.error(f"حدث خطأ أثناء العملية: {e}")
