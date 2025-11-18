@@ -546,6 +546,79 @@ def render_table_with_drive_links_and_download_all(df: pd.DataFrame, link_col: s
                     st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
 
 
+def _gather_drive_links_from_df(df: pd.DataFrame) -> List[tuple]:
+    """
+    Return list of (share_url, suggested_name) found in df.
+    Looks for any cell that looks like an http(s) URL or columns containing 'رابط'.
+    """
+    out = []
+    if df is None or df.empty:
+        return out
+    # columns that likely contain links
+    link_cols = [c for c in df.columns if "رابط" in str(c)]
+    # also scan all cells for urls if link_cols empty
+    if not link_cols:
+        for idx, row in df.iterrows():
+            for col in df.columns:
+                v = str(row[col] or "")
+                if v.startswith(("http://", "https://")):
+                    name = str(row.get("اسم الشهادة") or row.get("اسم المستخلص") or row.get("رقم الشيك") or f"file_{idx}")
+                    out.append((v, _safe_filename(name)))
+    else:
+        for idx, row in df.iterrows():
+            for col in link_cols:
+                v = str(row.get(col) or "")
+                if v.startswith(("http://", "https://")):
+                    name = str(row.get("اسم الشهادة") or row.get("اسم المستخلص") or row.get("رقم الشيك") or f"file_{idx}")
+                    out.append((v, _safe_filename(name)))
+    # deduplicate by URL preserving first suggested name
+    seen = {}
+    for url, name in out:
+        if url not in seen:
+            seen[url] = name
+    return list(seen.items())
+
+
+def _download_urls_to_zip(urls_and_names: List[tuple], zip_name: str = "files.zip", timeout: int = 30) -> tuple[bytes, list]:
+    """
+    Download each URL (converted to direct Drive download when possible) and store into an in-memory ZIP.
+    Returns (zip_bytes, errors_list).
+    errors_list contains tuples (url, error_message).
+    """
+    buf = BytesIO()
+    errors = []
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for i, (share_url, suggested_name) in enumerate(urls_and_names):
+            direct = _drive_share_to_direct_download(share_url)
+            if not direct:
+                errors.append((share_url, "invalid link"))
+                continue
+            try:
+                resp = requests.get(direct, stream=True, timeout=timeout)
+                resp.raise_for_status()
+                # try to get filename from headers
+                fname = None
+                cd = resp.headers.get("content-disposition", "") or ""
+                m = re.search(r"filename\*=UTF-8''(.+)$", cd)
+                if m:
+                    fname = requests.utils.unquote(m.group(1))
+                else:
+                    m2 = re.search(r'filename="?([^";]+)"?', cd)
+                    if m2:
+                        fname = m2.group(1)
+                if not fname:
+                    # try from URL path last segment
+                    path_tail = direct.rstrip("/").split("/")[-1]
+                    fname = path_tail if "." in path_tail else f"{suggested_name}_{i}"
+                fname = _safe_filename(fname)
+                data = resp.content
+                zf.writestr(fname, data)
+            except Exception as e:
+                errors.append((share_url, str(e)))
+    buf.seek(0)
+    return buf.getvalue(), errors
+
+
 # =========================================================
 # PDF helpers (clean + zebra + anchors + dynamic title)
 # ******* FINAL FIX FOR 'رقم الشيك' (no commas) **********
@@ -824,12 +897,31 @@ def main() -> None:
         project_name = create_project_dropdown(conn, company_name)
         type_label, type_key = create_type_dropdown()
 
-    if not company_name or not project_name or not type_key:
-        st.info("برجاء اختيار الشركة والمشروع ونوع البيانات من الشريط الجانبي لعرض النتائج.")
-        return
-
-    # Global date filters (main area)
-    g_date_from, g_date_to = None, None
+        # -----------------------
+        # زر تنزيل كل الشيكات والمستخلصات (ZIP)
+        # -----------------------
+        if company_name and project_name:
+            if st.button("⬇️ تنزيل كل الشيكات والمستخلصات (ZIP)"):
+                with st.spinner("جاري جلب روابط الشيكات والمستخلصات وضغطها في ZIP ..."):
+                    # fetch both tables
+                    try:
+                        df_checks = fetch_data(conn, company_name, project_name, "checks")
+                        df_invoice = fetch_data(conn, company_name, project_name, "invoice")
+                        combined = pd.concat([df_checks, df_invoice], ignore_index=True, sort=False).fillna("")
+                        urls_and_names = _gather_drive_links_from_df(combined)
+                        if not urls_and_names:
+                            st.warning("لم يتم العثور على أي روابط في جداول الشيكات أو المستخلصات.")
+                        else:
+                            zip_bytes, errors = _download_urls_to_zip(urls_and_names, zip_name=_safe_filename(f"{company_name}_{project_name}_checks_invoices.zip"))
+                            if zip_bytes and len(zip_bytes) > 0:
+                                st.download_button("تحميل ZIP لجميع الملفات", data=zip_bytes, file_name=_safe_filename(f"{company_name}_{project_name}_شيكات_ومستخلصات.zip"), mime="application/zip")
+                                if errors:
+                                    st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
+                            else:
+                                st.error("فشل إنشاء ZIP. تحقق من الروابط أو الإتصال.")
+                    except Exception as e:
+                        st.error(f"حدث خطأ أثناء العملية: {e}")
+# ...existing code...
     with st.container():
         st.markdown('<div class="date-box"><div class="date-row">', unsafe_allow_html=True)
         c1, c2 = st.columns([1, 1], gap="small")
@@ -849,80 +941,37 @@ def main() -> None:
 
         header_company = company_name or "—"
         header_project = project_name or "—"
-        header_date = str(row.get("تاريخ التعاقد", "—"))
-        st.markdown(
-            f"""
-            <div class="fin-head">
-                <div class="line">
-                    <strong>الشركة:</strong> {header_company}
-                    &nbsp;&nbsp;|&nbsp;&nbsp;
-                    <strong>المشروع:</strong> {header_project}
-                    &nbsp;&nbsp;|&nbsp;&nbsp;
-                    <strong>تاريخ التعاقد:</strong> {header_date}
-                </div>
-                <span class="badge">تقرير مالي</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        header_date = str(row.get("تاريخ التعاقد") or row.get("تاريخ الإصدار") or "—")
+        title_summary = f"ملخص العقد - {header_company} | {header_project}"
+        title_flow = f"دفتر التدفق - {header_company} | {header_project} | {header_date}"
+        title_all = f"التقرير المالي - {header_company} | {header_project} | {header_date}"
 
-        # Summary panel from data only (name right, value left)
-        summary_pairs = _row_to_pairs_from_data(row)
-        if summary_pairs:
-            left_items, right_items = _split_pairs_two_columns(summary_pairs)
-            st.markdown('<h3 class="hsec">ملخص المشروع</h3>', unsafe_allow_html=True)
-            fin_panel_two_tables(left_items=left_items, right_items=right_items)
+        # Main summary table
+        st.markdown('<h3 class="hsec">ملخص العقد</h3>', unsafe_allow_html=True)
+        st.markdown('<div class="card soft">', unsafe_allow_html=True)
+        st.dataframe(df_summary, use_container_width=True, hide_index=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        # Titles for exports (RTL arrow)
-        title_summary = compose_pdf_title(company_name, project_name, "ملخص", g_date_from, g_date_to)
-        title_flow    = compose_pdf_title(company_name, project_name, "دفتر التدفق", g_date_from, g_date_to)
-        title_all     = compose_pdf_title(company_name, project_name, "ملخص + دفتر التدفق", g_date_from, g_date_to)
-
-        # ---- Downloads (summary) ----
-        xlsx_sum = make_excel_bytes(df_summary, sheet_name="ملخص", title_line=title_summary, put_logo=True)
-        if xlsx_sum:
-            st.download_button("تنزيل الملخص كـ Excel", xlsx_sum,
-                               file_name=_safe_filename(f"ملخص_{company_name}_{project_name}.xlsx"),
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        pdf_sum = make_pdf_bytes(_format_numbers_for_display(df_summary), title_line=title_summary)
-        st.download_button("تنزيل الملخص كـ PDF", pdf_sum,
-                           file_name=_safe_filename(f"ملخص_{company_name}_{project_name}.pdf"),
+        # PDF + Excel downloads
+        st.markdown("### تنزيل التقرير")
+        pdf_summary = make_pdf_bytes(_format_numbers_for_display(df_summary), title_line=title_summary)
+        st.download_button("تنزيل الملخص كـ PDF", pdf_summary,
+                           file_name=_safe_filename(f"ملخص_العقد_{company_name}_{project_name}.pdf"),
                            mime="application/pdf")
 
-        st.markdown('<hr class="hr-accent"/>', unsafe_allow_html=True)
+        df_flow_display = df_summary[
+            ["تاريخ الإصدار", "رقم الشيك", "المستفيد", "قيمة الشيك", "حالة الشيك"]
+        ].copy()
+        df_flow_display.columns = ["تاريخ", "رقم", "المستفيد", "قيمة", "الحالة"]
 
-        # ---- Ledger (v_financial_flow) ----
-        st.markdown('<h3 class="hsec">دفتر التدفق (v_financial_flow)</h3>', unsafe_allow_html=True)
-        df_flow = fetch_financial_flow_view(conn, company_name, project_name, g_date_from, g_date_to)
-        if df_flow.empty:
-            st.info("لا توجد حركات مطابقة ضمن النطاق المحدد.")
-            return
-
-        col_search, term = create_column_search(df_flow)
-        if col_search and term:
-            df_flow = df_flow[df_flow[col_search].astype(str).str.contains(str(term), case=False, na=False)]
-            if df_flow.empty:
-                st.info("لا توجد نتائج بعد تطبيق البحث.")
-                return
-
-        df_flow_display = df_flow.drop(columns=["companyid", "contractid"], errors="ignore")
+        # Main flow table
+        st.markdown('<h3 class="hsec">دفتر التدفق</h3>', unsafe_allow_html=True)
         st.markdown('<div class="card soft">', unsafe_allow_html=True)
         st.dataframe(df_flow_display, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Individual downloads
-        xlsx_flow = make_excel_bytes(df_flow_display, sheet_name="دفتر_التدفق", title_line=title_flow, put_logo=True)
-        if xlsx_flow:
-            st.download_button("تنزيل الدفتر كـ Excel", xlsx_flow,
-                               file_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}.xlsx"),
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        csv_flow = make_csv_utf8(df_flow_display)
-        st.download_button("تنزيل الدفتر كـ CSV", csv_flow,
-                           file_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}.csv"),
-                           mime="text/csv")
-
-        # PDF: keep رقم الشيك without commas (and any column containing 'شيك')
-        pdf_flow_df = _format_numbers_for_display(df_flow_display, no_comma_cols=["رقم الشيك"])
+        # PDF + Excel downloads
+        st.markdown("### تنزيل الدفتر")
         pdf_flow = make_pdf_bytes(pdf_flow_df, title_line=title_flow)
         st.download_button("تنزيل الدفتر كـ PDF", pdf_flow,
                            file_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}.pdf"),
