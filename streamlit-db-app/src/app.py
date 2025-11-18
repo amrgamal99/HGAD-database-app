@@ -9,6 +9,7 @@ from typing import Optional, Tuple, Dict, List
 
 import pandas as pd
 import streamlit as st
+import base64  # <-- add this import
 
 # ReportLab (PDF) + Arabic shaping
 from reportlab.platypus import (
