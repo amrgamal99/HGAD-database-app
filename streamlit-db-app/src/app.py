@@ -471,6 +471,81 @@ def make_csv_utf8(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
 
+# --- ADD / MOVE: Drive helpers (place before main) ---
+def _drive_share_to_direct_download(share_url: str) -> str | None:
+    """حوّل رابط مشاركة Drive إلى رابط تنزيل مباشر (uc?export=download&id=...)."""
+    if not share_url:
+        return None
+    m = re.search(r'/d/([a-zA-Z0-9_-]{10,})', share_url)
+    if m:
+        fid = m.group(1)
+        return f"https://drive.google.com/uc?export=download&id={fid}"
+    m2 = re.search(r'[?&]id=([a-zA-Z0-9_-]{10,})', share_url)
+    if m2:
+        return f"https://drive.google.com/uc?export=download&id={m2.group(1)}"
+    return share_url
+
+
+def render_table_with_drive_links_and_download_all(df: pd.DataFrame, link_col: str = "رابط", zip_name: str = "all_drive_files.zip"):
+    """
+    عرض HTML يحتوي عمود 'فتح / تنزيل' لكل صف (مأخوذ من link_col).
+    ويوفّر زر 'تنزيل الكل (ZIP)' لجلب كل الملفات من Drive وضغطها.
+    """
+    if df is None or df.empty or link_col not in df.columns:
+        st.warning("لا توجد روابط للعرض أو اسم عمود الروابط غير موجود.")
+        return
+
+    def row_link_html(url):
+        direct = _drive_share_to_direct_download(str(url))
+        return f'<a href="{direct}" target="_blank" rel="noopener" style="color:#60a5fa; text-decoration:none; font-weight:600;">فتح / تنزيل</a>'
+
+    df_html = df.copy()
+    df_html["فتح/تنزيل"] = df_html[link_col].apply(row_link_html)
+
+    # Render HTML table (exclude original raw link column to avoid duplicate)
+    cols = [c for c in df_html.columns if c != link_col]
+    st.markdown(df_html.to_html(columns=cols, escape=False, index=False), unsafe_allow_html=True)
+
+    if st.button("⬇️ تنزيل الكل (ZIP)"):
+        with st.spinner("جاري جلب الملفات وضغطها ..."):
+            buf = BytesIO()
+            with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                errors = []
+                for idx, row in df.iterrows():
+                    share_url = str(row.get(link_col, "") or "")
+                    direct = _drive_share_to_direct_download(share_url)
+                    if not direct:
+                        errors.append((idx, "رابط غير صالح"))
+                        continue
+                    try:
+                        resp = requests.get(direct, stream=True, timeout=30)
+                        resp.raise_for_status()
+                        fname = None
+                        cd = resp.headers.get("content-disposition", "")
+                        m = re.search(r'filename\*=UTF-8\'\'(.+)$', cd)
+                        if m:
+                            fname = requests.utils.unquote(m.group(1))
+                        else:
+                            m2 = re.search(r'filename="?([^";]+)"?', cd)
+                            if m2:
+                                fname = m2.group(1)
+                        if not fname:
+                            fid = re.search(r'/d/([a-zA-Z0-9_-]{10,})', share_url)
+                            fname = f"file_{idx}_{fid.group(1) if fid else idx}"
+                        data = resp.content
+                        zf.writestr(fname, data)
+                    except Exception as e:
+                        errors.append((idx, str(e)))
+
+            buf.seek(0)
+            if buf.getbuffer().nbytes == 0:
+                st.error("فشل إنشاء ملف ZIP. تحقق من الروابط أو اتصالات الشبكة.")
+            else:
+                st.download_button(label="تحميل ملف ZIP", data=buf.getvalue(), file_name=zip_name, mime="application/zip")
+                if errors:
+                    st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
+
+
 # =========================================================
 # PDF helpers (clean + zebra + anchors + dynamic title)
 # ******* FINAL FIX FOR 'رقم الشيك' (no commas) **********
@@ -932,81 +1007,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-def _drive_share_to_direct_download(share_url: str) -> str | None:
-    """حوّل رابط مشاركة Drive إلى رابط تنزيل مباشر (uc?export=download&id=...)."""
-    if not share_url:
-        return None
-    m = re.search(r'/d/([a-zA-Z0-9_-]{10,})', share_url)
-    if m:
-        fid = m.group(1)
-        return f"https://drive.google.com/uc?export=download&id={fid}"
-    # بعض روابط قد تكون في شكل id=... أو open?id=ID
-    m2 = re.search(r'[?&]id=([a-zA-Z0-9_-]{10,})', share_url)
-    if m2:
-        return f"https://drive.google.com/uc?export=download&id={m2.group(1)}"
-    return share_url  # إرجاع الأصلية كاحتياط
-
-def render_table_with_drive_links_and_download_all(df: pd.DataFrame, link_col: str = "رابط الملف", zip_name: str = "all_drive_files.zip"):
-    """
-    يعرض الجدول كـ HTML مع عمود لفتح/تنزيل الرابط، ويد 'تنزيل الكل' لضغط كل الروابط في zip.
-    يتوقع أن يحتوي df[link_col] على روابط مشاركة Drive.
-    """
-    if df is None or df.empty or link_col not in df.columns:
-        st.warning("لا توجد روابط للعرض أو اسم عمود الروابط غير موجود.")
-        return
-
-    # أنشئ عمود HTML لزر التنزيل/فتح لكل صف
-    def row_link_html(url):
-        direct = _drive_share_to_direct_download(str(url))
-        # use download attribute — يعمل عندما يكون الرابط قابلًا للتحميل عبر المتصفح
-        return f'<a href="{direct}" target="_blank" rel="noopener" style="color:#60a5fa; text-decoration:none; font-weight:600;">فتح / تنزيل</a>'
-
-    df_html = df.copy()
-    df_html["رابط"] = df_html[link_col].apply(row_link_html)
-
-    # عرض الجدول بتمكين HTML (لاحظ: st.dataframe لا يدعم HTML لذلك نستخدم to_html)
-    st.markdown(df_html.to_html(columns=[c for c in df_html.columns if c != link_col], escape=False, index=False), unsafe_allow_html=True)
-
-    # زر تنزيل الكل
-    if st.button("⬇️ تنزيل الكل (ZIP)"):
-        with st.spinner("جاري جلب الملفات وضغطها ..."):
-            buf = BytesIO()
-            with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-                errors = []
-                for idx, row in df.iterrows():
-                    share_url = str(row.get(link_col, "") or "")
-                    direct = _drive_share_to_direct_download(share_url)
-                    if not direct:
-                        errors.append((idx, "رابط غير صالح"))
-                        continue
-                    try:
-                        resp = requests.get(direct, stream=True, timeout=30)
-                        resp.raise_for_status()
-                        # اسم الملف الافتراضي: رقم الصف + اسم الملف من هيدر أو id
-                        fname = None
-                        cd = resp.headers.get("content-disposition", "")
-                        m = re.search(r'filename\*=UTF-8\'\'(.+)$', cd)
-                        if m:
-                            fname = requests.utils.unquote(m.group(1))
-                        else:
-                            m2 = re.search(r'filename="?([^";]+)"?', cd)
-                            if m2:
-                                fname = m2.group(1)
-                        if not fname:
-                            # خذ id من share url كاسم احتياطي
-                            fid = re.search(r'/d/([a-zA-Z0-9_-]{10,})', share_url)
-                            fname = f"file_{idx}_{fid.group(1) if fid else idx}"
-                        # ensure extension? leave as is
-                        data = resp.content
-                        zf.writestr(fname, data)
-                    except Exception as e:
-                        errors.append((idx, str(e)))
-
-            buf.seek(0)
-            if buf.getbuffer().nbytes == 0:
-                st.error("فشل إنشاء ملف ZIP. تحقق من الروابط أو اتصالات الشبكة.")
-            else:
-                st.download_button(label="تحميل ملف ZIP", data=buf.getvalue(), file_name=zip_name, mime="application/zip")
-                if errors:
-                    st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}). تحقق من سجلات الأخطاء.")
