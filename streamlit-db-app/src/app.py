@@ -485,66 +485,44 @@ def _drive_share_to_direct_download(share_url: str) -> str | None:
         return f"https://drive.google.com/uc?export=download&id={m2.group(1)}"
     return share_url
 
-
-def render_table_with_drive_links_and_download_all(df: pd.DataFrame, link_col: str = "رابط", zip_name: str = "all_drive_files.zip"):
+def _create_zip_from_links(df: pd.DataFrame, link_col: str) -> Tuple[Optional[bytes], List[Tuple[int,str]]]:
     """
-    عرض HTML يحتوي عمود 'فتح / تنزيل' لكل صف (مأخوذ من link_col).
-    ويوفّر زر 'تنزيل الكل (ZIP)' لجلب كل الملفات من Drive وضغطها.
+    Download all files from df[link_col] (converting Drive share links to direct)
+    and return (zip_bytes, errors).
     """
     if df is None or df.empty or link_col not in df.columns:
-        st.warning("لا توجد روابط للعرض أو اسم عمود الروابط غير موجود.")
-        return
-
-    def row_link_html(url):
-        direct = _drive_share_to_direct_download(str(url))
-        return f'<a href="{direct}" target="_blank" rel="noopener" style="color:#60a5fa; text-decoration:none; font-weight:600;">فتح / تنزيل</a>'
-
-    df_html = df.copy()
-    df_html["فتح/تنزيل"] = df_html[link_col].apply(row_link_html)
-
-    # Render HTML table (exclude original raw link column to avoid duplicate)
-    cols = [c for c in df_html.columns if c != link_col]
-    st.markdown(df_html.to_html(columns=cols, escape=False, index=False), unsafe_allow_html=True)
-
-    if st.button("⬇️ تنزيل الكل (ZIP)"):
-        with st.spinner("جاري جلب الملفات وضغطها ..."):
-            buf = BytesIO()
-            with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-                errors = []
-                for idx, row in df.iterrows():
-                    share_url = str(row.get(link_col, "") or "")
-                    direct = _drive_share_to_direct_download(share_url)
-                    if not direct:
-                        errors.append((idx, "رابط غير صالح"))
-                        continue
-                    try:
-                        resp = requests.get(direct, stream=True, timeout=30)
-                        resp.raise_for_status()
-                        fname = None
-                        cd = resp.headers.get("content-disposition", "")
-                        m = re.search(r'filename\*=UTF-8\'\'(.+)$', cd)
-                        if m:
-                            fname = requests.utils.unquote(m.group(1))
-                        else:
-                            m2 = re.search(r'filename="?([^";]+)"?', cd)
-                            if m2:
-                                fname = m2.group(1)
-                        if not fname:
-                            fid = re.search(r'/d/([a-zA-Z0-9_-]{10,})', share_url)
-                            fname = f"file_{idx}_{fid.group(1) if fid else idx}"
-                        data = resp.content
-                        zf.writestr(fname, data)
-                    except Exception as e:
-                        errors.append((idx, str(e)))
-
-            buf.seek(0)
-            if buf.getbuffer().nbytes == 0:
-                st.error("فشل إنشاء ملف ZIP. تحقق من الروابط أو اتصالات الشبكة.")
-            else:
-                st.download_button(label="تحميل ملف ZIP", data=buf.getvalue(), file_name=zip_name, mime="application/zip")
-                if errors:
-                    st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
-
+        return None, [(-1, "لا توجد روابط")]
+    buf = BytesIO()
+    errors = []
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for idx, row in df.iterrows():
+            share_url = str(row.get(link_col, "") or "")
+            direct = _drive_share_to_direct_download(share_url)
+            if not direct:
+                errors.append((idx, "رابط غير صالح"))
+                continue
+            try:
+                resp = requests.get(direct, stream=True, timeout=30)
+                resp.raise_for_status()
+                fname = None
+                cd = resp.headers.get("content-disposition", "") or ""
+                m = re.search(r'filename\*=UTF-8\'\'(.+)$', cd)
+                if m:
+                    fname = requests.utils.unquote(m.group(1))
+                else:
+                    m2 = re.search(r'filename="?([^";]+)"?', cd)
+                    if m2:
+                        fname = m2.group(1)
+                if not fname:
+                    fid = re.search(r'/d/([a-zA-Z0-9_-]{10,})', share_url)
+                    fname = f"file_{idx}_{fid.group(1) if fid else idx}"
+                zf.writestr(fname, resp.content)
+            except Exception as e:
+                errors.append((idx, str(e)))
+    buf.seek(0)
+    if buf.getbuffer().nbytes == 0:
+        return None, errors
+    return buf.getvalue(), errors
 
 # =========================================================
 # PDF helpers (clean + zebra + anchors + dynamic title)
@@ -928,6 +906,24 @@ def main() -> None:
                            file_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}.pdf"),
                            mime="application/pdf")
 
+        # New: Download all linked files (ZIP) for the displayed ledger if a link column exists
+        link_cols = [c for c in df_flow_display.columns if "رابط" in str(c)]
+        if link_cols:
+            link_col = link_cols[0]
+            btn_label = "⬇️ تنزيل الكل (ZIP)"
+            if type_label and "مستخلص" in str(type_label):
+                btn_label = "⬇️ تنزيل كل المستخلصات (ZIP)"
+            if st.button(btn_label):
+                zip_bytes, errors = _create_zip_from_links(df_flow_display, link_col)
+                if not zip_bytes:
+                    st.error("فشل إنشاء ملف ZIP. تحقق من الروابط أو الاتصال.")
+                else:
+                    st.download_button(label="تحميل ملف ZIP", data=zip_bytes,
+                                       file_name=_safe_filename(f"{type_label or 'الملفات'}_{company_name}_{project_name}.zip"),
+                                       mime="application/zip")
+                    if errors:
+                        st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
+
         # Combined
         st.markdown("### تنزيل تقرير موحّد")
         excel_two = make_excel_combined_two_sheets(
@@ -1003,6 +999,24 @@ def main() -> None:
     st.download_button("تنزيل كـ PDF", pdf_bytes,
                        file_name=_safe_filename(f"{type_key}_{company_name}_{project_name}.pdf"),
                        mime="application/pdf")
+
+    # New: Download all linked files for generic data types (appears after PDF button)
+    link_cols = [c for c in df.columns if "رابط" in str(c)]
+    if link_cols:
+        link_col = link_cols[0]
+        btn_label = "⬇️ تنزيل الكل (ZIP)"
+        if type_label and "مستخلص" in str(type_label):
+            btn_label = "⬇️ تنزيل كل المستخلصات (ZIP)"
+        if st.button(btn_label):
+            zip_bytes, errors = _create_zip_from_links(df, link_col)
+            if not zip_bytes:
+                st.error("فشل إنشاء ملف ZIP. تحقق من الروابط أو الاتصال.")
+            else:
+                st.download_button(label="تحميل ملف ZIP", data=zip_bytes,
+                                   file_name=_safe_filename(f"{type_label or 'الملفات'}_{company_name}_{project_name}.zip"),
+                                   mime="application/zip")
+                if errors:
+                    st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
 
 
 if __name__ == "__main__":
