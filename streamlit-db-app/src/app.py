@@ -218,6 +218,11 @@ button[title="Expand sidebar"],button[title="Collapse sidebar"],
 .fin-table tr:hover td{ background:#111a2d; transition: background .2s ease; }
 .fin-table td.value{ background:#0f1a30; font-weight:800; text-align:center; width:34%; }
 .fin-table td.label{ background:#0d1628; font-weight:700; text-align:right; width:66%; }
+
+.hsec, .fin-head, h1, h3 {
+  text-align: right !important;
+  direction: rtl !important;
+}
 </style>
 """,
     unsafe_allow_html=True,
