@@ -360,33 +360,34 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
                 else:
                     ws.write(r0 + 1 + i, c0 + j, sval, fmt_text)
 
-    # --- Add sum row for specific columns (FIXED VERSION) ---
+    # --- Add sum row for ALL numeric columns (IMPROVED VERSION) ---
     sum_row_idx = r0 + 1 + len(df)
-    sum_cols = [
-        "قيمه شيك", "قيمهشيك", "قيمةشيك", "قيمة التأمين", "قيمةالتأمين",
-        "قيمة المستخلص قبل الخصومات", "قيمةالمستخلصقبلالخصومات",
-        "صافي المستحق بعد الخصومات", "صافيالمستحقبعدالخصومات"
-    ]
-    # Use the same normalization as _normalize_name for robust matching
-    def _normalize_sum(s):
-        return re.sub(r'[\s\u0640\u200c\u200d\u200e\u200f]+', '', str(s or ''))
-
-    norm_sum_cols = set(_normalize_sum(c) for c in sum_cols)
+    
+    # Columns to exclude from summing (IDs, codes, dates)
+    exclude_keywords = ['id', 'رقم', 'تاريخ', 'date', 'code', 'كود', 'بنك', 'bank', 'نوع', 'type']
     
     # Label for sum row (first col)
     if len(df.columns) > 0:
         ws.write(sum_row_idx, c0, "المجموع", hdr_fmt)
     
     for j, col in enumerate(df.columns):
-        col_norm = _normalize_sum(col)
-        # Check if column should be summed and is numeric
-        if col_norm in norm_sum_cols:
+        col_lower = str(col).lower()
+        
+        # Skip if column contains exclude keywords
+        should_exclude = any(keyword in col_lower for keyword in exclude_keywords)
+        
+        if not should_exclude:
             try:
-                # Convert to numeric, coercing errors (handles string numbers)
+                # Try to convert column to numeric
                 numeric_col = pd.to_numeric(df[col], errors='coerce')
-                s = numeric_col.sum()
-                if not pd.isna(s) and s != 0:
-                    ws.write(sum_row_idx, c0 + j, s, fmt_num)
+                
+                # Check if column has any numeric values (not all NaN)
+                if not numeric_col.isna().all():
+                    s = numeric_col.sum()
+                    if not pd.isna(s) and abs(s) > 0.001:  # Use small threshold to avoid floating point issues
+                        ws.write(sum_row_idx, c0 + j, s, fmt_num)
+                    else:
+                        ws.write(sum_row_idx, c0 + j, "", fmt_text)
                 else:
                     ws.write(sum_row_idx, c0 + j, "", fmt_text)
             except Exception:
