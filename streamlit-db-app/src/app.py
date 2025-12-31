@@ -365,8 +365,14 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
     sum_cols = [
         "قيمه شيك", "قيمة التأمين", "قيمة المستخلص قبل الخصومات", "صافي المستحق بعد الخصومات"
     ]
+    # Normalize function for robust matching
+    def _normalize_name(s):
+        return str(s).replace(" ", "").replace("\u0640", "").replace("\u200c", "").replace("\u200d", "").replace("\u200e", "").replace("\u200f", "")
+
+    norm_sum_cols = set(_normalize_name(c) for c in sum_cols)
     for j, col in enumerate(df.columns):
-        if str(col) in sum_cols and pd.api.types.is_numeric_dtype(df[col]):
+        col_norm = _normalize_name(col)
+        if col_norm in norm_sum_cols and pd.api.types.is_numeric_dtype(df[col]):
             s = df[col].dropna().sum()
             ws.write(sum_row_idx, c0 + j, s, fmt_num)
         else:
