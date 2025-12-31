@@ -365,9 +365,9 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
     sum_cols = [
         "قيمه شيك", "قيمة التأمين", "قيمة المستخلص قبل الخصومات", "صافي المستحق بعد الخصومات"
     ]
-    # Normalize function for robust matching
+    # Use the same normalization as _normalize_name for robust matching
     def _normalize_name(s):
-        return str(s).replace(" ", "").replace("\u0640", "").replace("\u200c", "").replace("\u200d", "").replace("\u200e", "").replace("\u200f", "")
+        return re.sub(r'[\s\u0640\u200c\u200d\u200e\u200f]+', '', str(s or ''))
 
     norm_sum_cols = set(_normalize_name(c) for c in sum_cols)
     for j, col in enumerate(df.columns):
