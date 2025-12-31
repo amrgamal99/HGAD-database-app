@@ -341,6 +341,7 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
     for j, col in enumerate(df.columns):
         ws.write(r0, c0 + j, col, hdr_fmt)
 
+
     # body
     for i in range(len(df)):
         for j, col in enumerate(df.columns):
@@ -359,7 +360,35 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
                 else:
                     ws.write(r0 + 1 + i, c0 + j, sval, fmt_text)
 
-    r1 = r0 + len(df)
+    # --- Add sum row for specific columns ---
+    sum_row_idx = r0 + 1 + len(df)
+    sum_cols = [
+        "قيمه شيك", "قيمة التأمين", "قيمة المستخلص قبل الخصومات", "صافي المستحق بعد الخصومات"
+    ]
+    for j, col in enumerate(df.columns):
+        if str(col) in sum_cols and pd.api.types.is_numeric_dtype(df[col]):
+            s = df[col].dropna().sum()
+            ws.write(sum_row_idx, c0 + j, s, fmt_num)
+        else:
+            ws.write(sum_row_idx, c0 + j, "", fmt_text)
+    # Label for sum row (first col)
+    if len(df.columns) > 0:
+        ws.write(sum_row_idx, c0, "المجموع", hdr_fmt)
+
+    # --- Add count row for specific columns ---
+    count_row_idx = sum_row_idx + 1
+    count_cols = ["رقم الشيك", "اسم المستخلص"]
+    for j, col in enumerate(df.columns):
+        if str(col) in count_cols:
+            c = df[col].count()
+            ws.write(count_row_idx, c0 + j, c, fmt_num)
+        else:
+            ws.write(count_row_idx, c0 + j, "", fmt_text)
+    # Label for count row (first col)
+    if len(df.columns) > 0:
+        ws.write(count_row_idx, c0, "عدد الصفوف", hdr_fmt)
+
+    r1 = count_row_idx
     c1 = c0 + len(df.columns) - 1
 
     ws.add_table(r0, c0, r1, c1, {
