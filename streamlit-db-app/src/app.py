@@ -375,20 +375,7 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
     if len(df.columns) > 0:
         ws.write(sum_row_idx, c0, "المجموع", hdr_fmt)
 
-    # --- Add count row for specific columns ---
-    count_row_idx = sum_row_idx + 1
-    count_cols = ["رقم الشيك", "اسم المستخلص"]
-    for j, col in enumerate(df.columns):
-        if str(col) in count_cols:
-            c = df[col].count()
-            ws.write(count_row_idx, c0 + j, c, fmt_num)
-        else:
-            ws.write(count_row_idx, c0 + j, "", fmt_text)
-    # Label for count row (first col)
-    if len(df.columns) > 0:
-        ws.write(count_row_idx, c0, "عدد الصفوف", hdr_fmt)
-
-    r1 = count_row_idx
+    r1 = sum_row_idx
     c1 = c0 + len(df.columns) - 1
 
     ws.add_table(r0, c0, r1, c1, {
