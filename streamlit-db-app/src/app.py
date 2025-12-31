@@ -360,26 +360,39 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
                 else:
                     ws.write(r0 + 1 + i, c0 + j, sval, fmt_text)
 
-    # --- Add sum row for specific columns ---
+    # --- Add sum row for specific columns (FIXED VERSION) ---
     sum_row_idx = r0 + 1 + len(df)
     sum_cols = [
-        "قيمه شيك", "قيمة التأمين", "قيمة المستخلص قبل الخصومات", "صافي المستحق بعد الخصومات"
+        "قيمه شيك", "قيمهشيك", "قيمةشيك", "قيمة التأمين", "قيمةالتأمين",
+        "قيمة المستخلص قبل الخصومات", "قيمةالمستخلصقبلالخصومات",
+        "صافي المستحق بعد الخصومات", "صافيالمستحقبعدالخصومات"
     ]
     # Use the same normalization as _normalize_name for robust matching
-    def _normalize_name(s):
+    def _normalize_sum(s):
         return re.sub(r'[\s\u0640\u200c\u200d\u200e\u200f]+', '', str(s or ''))
 
-    norm_sum_cols = set(_normalize_name(c) for c in sum_cols)
-    for j, col in enumerate(df.columns):
-        col_norm = _normalize_name(col)
-        if col_norm in norm_sum_cols and pd.api.types.is_numeric_dtype(df[col]):
-            s = df[col].dropna().sum()
-            ws.write(sum_row_idx, c0 + j, s, fmt_num)
-        else:
-            ws.write(sum_row_idx, c0 + j, "", fmt_text)
+    norm_sum_cols = set(_normalize_sum(c) for c in sum_cols)
+    
     # Label for sum row (first col)
     if len(df.columns) > 0:
         ws.write(sum_row_idx, c0, "المجموع", hdr_fmt)
+    
+    for j, col in enumerate(df.columns):
+        col_norm = _normalize_sum(col)
+        # Check if column should be summed and is numeric
+        if col_norm in norm_sum_cols:
+            try:
+                # Convert to numeric, coercing errors (handles string numbers)
+                numeric_col = pd.to_numeric(df[col], errors='coerce')
+                s = numeric_col.sum()
+                if not pd.isna(s) and s != 0:
+                    ws.write(sum_row_idx, c0 + j, s, fmt_num)
+                else:
+                    ws.write(sum_row_idx, c0 + j, "", fmt_text)
+            except Exception:
+                ws.write(sum_row_idx, c0 + j, "", fmt_text)
+        else:
+            ws.write(sum_row_idx, c0 + j, "", fmt_text)
 
     r1 = sum_row_idx
     c1 = c0 + len(df.columns) - 1
