@@ -360,7 +360,7 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
                 else:
                     ws.write(r0 + 1 + i, c0 + j, sval, fmt_text)
 
-    # --- Add sum row for ALL numeric columns (IMPROVED VERSION) ---
+    # --- Add sum row for ALL numeric columns (المجموع) ---
     sum_row_idx = r0 + 1 + len(df)
     
     # Columns to exclude from summing (IDs, codes, dates)
@@ -395,7 +395,26 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
         else:
             ws.write(sum_row_idx, c0 + j, "", fmt_text)
 
-    r1 = sum_row_idx
+    # --- Add count row (عدد صفوف) ---
+    count_row_idx = sum_row_idx + 1
+    
+    # Label for count row (first col)
+    if len(df.columns) > 0:
+        ws.write(count_row_idx, c0, "عدد صفوف", hdr_fmt)
+    
+    # Count non-empty values in each column
+    for j, col in enumerate(df.columns):
+        try:
+            # Count non-null values in the column
+            count = df[col].notna().sum()
+            if count > 0:
+                ws.write(count_row_idx, c0 + j, count, fmt_text)
+            else:
+                ws.write(count_row_idx, c0 + j, "", fmt_text)
+        except Exception:
+            ws.write(count_row_idx, c0 + j, "", fmt_text)
+
+    r1 = count_row_idx
     c1 = c0 + len(df.columns) - 1
 
     ws.add_table(r0, c0, r1, c1, {
