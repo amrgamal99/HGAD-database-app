@@ -370,7 +370,11 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
     if len(df.columns) > 0:
         ws.write(sum_row_idx, c0, "المجموع", hdr_fmt)
     
+    # Loop through columns starting from index 1 (skip first column which has the label)
     for j, col in enumerate(df.columns):
+        if j == 0:  # Skip first column - it has the label "المجموع"
+            continue
+            
         col_lower = str(col).lower()
         
         # Skip if column contains exclude keywords
@@ -407,13 +411,14 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
         total_rows = len(df)
         ws.write(count_row_idx, c0 + 1, total_rows, fmt_text)
         
-        # Write empty cells for all other columns
+        # Write empty cells for all other columns (skip first column which has label)
         for j in range(len(df.columns)):
-            if j != 1:  # Skip the second column (index 1)
-                ws.write(count_row_idx, c0 + j, "", fmt_text)
+            if j == 0 or j == 1:  # Skip first column (label) and second column (count value)
+                continue
+            ws.write(count_row_idx, c0 + j, "", fmt_text)
     else:
-        # If only one column, still write empty
-        ws.write(count_row_idx, c0, "", fmt_text)
+        # If only one column, the label is already written, do nothing more
+        pass
 
     r1 = count_row_idx
     c1 = c0 + len(df.columns) - 1
