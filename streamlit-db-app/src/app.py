@@ -395,24 +395,25 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
         else:
             ws.write(sum_row_idx, c0 + j, "", fmt_text)
 
-    # --- Add count row (عدد صفوف) ---
+    # --- Add count row (عدد الصفوف) - ONLY in second column ---
     count_row_idx = sum_row_idx + 1
     
     # Label for count row (first col)
     if len(df.columns) > 0:
-        ws.write(count_row_idx, c0, "عدد صفوف", hdr_fmt)
+        ws.write(count_row_idx, c0, "عدد الصفوف", hdr_fmt)
     
-    # Count non-empty values in each column
-    for j, col in enumerate(df.columns):
-        try:
-            # Count non-null values in the column
-            count = df[col].notna().sum()
-            if count > 0:
-                ws.write(count_row_idx, c0 + j, count, fmt_text)
-            else:
+    # Count total rows - ONLY in the second column (c0 + 1)
+    if len(df.columns) > 1:
+        total_rows = len(df)
+        ws.write(count_row_idx, c0 + 1, total_rows, fmt_text)
+        
+        # Write empty cells for all other columns
+        for j in range(len(df.columns)):
+            if j != 1:  # Skip the second column (index 1)
                 ws.write(count_row_idx, c0 + j, "", fmt_text)
-        except Exception:
-            ws.write(count_row_idx, c0 + j, "", fmt_text)
+    else:
+        # If only one column, still write empty
+        ws.write(count_row_idx, c0, "", fmt_text)
 
     r1 = count_row_idx
     c1 = c0 + len(df.columns) - 1
