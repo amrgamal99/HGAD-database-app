@@ -121,8 +121,10 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
 
         df = pd.DataFrame(data)
         if not df.empty:
-            df.drop(columns=[c for c in df.columns if c.lower().endswith("id")],
+                df.drop(columns=[c for c in df.columns if c.lower().endswith("id")],
                     inplace=True, errors="ignore")
+                # Drop columns where all values are null
+                df.dropna(axis=1, how="all", inplace=True)
 
         # format date-like columns
         for col in df.columns:
