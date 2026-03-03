@@ -177,9 +177,9 @@ def fetch_financial_flow_view(supabase: Client, company_name: str, project_name:
 
     try:
         q = supabase.table("v_financial_flow").select(
-            'companyid, contractid, "التاريخ", "نوع العملية", "اسم المستخلص", '
-            '"قيمة المستخلص قبل الخصومات", "صافي المستحق بعد الخصومات", '
-            '"رقم الشيك", "البنك", "قيمة الشيك", "الغرض من إصدار الشيك", "المتبقي"'
+              'companyid, contractid, "التاريخ", "نوع العملية", "اسم المستخلص", '
+              '"صافي المستحق بعد الخصومات", '
+              '"رقم الشيك", "البنك", "قيمة الشيك", "الغرض من إصدار الشيك", "المتبقي"'
         ).eq("contractid", contract_id)
 
         # استخدم filter مع أسماء الأعمدة العربية
