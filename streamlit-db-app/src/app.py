@@ -192,14 +192,64 @@ html, body{
   color:var(--text) !important; background:var(--bg) !important;
 }
 
-/* ── Sidebar: collapsible (removed the forced-open overrides) ── */
+/* ── Sidebar: fully hidden when collapsed, mobile friendly ── */
 [data-testid="stSidebar"]{
   background: linear-gradient(180deg, #0b1220, #0a1020) !important;
   border-inline-start: 1px solid var(--line) !important;
   min-width: 280px !important;
+  transition: all 0.3s ease !important;
 }
-/* Keep the collapse button visible */
-[data-testid="stSidebarCollapseButton"]{ display:flex !important; }
+
+/* When collapsed: slide completely off-screen & hide */
+[data-testid="stSidebar"][aria-expanded="false"]{
+  min-width: 0px !important;
+  width: 0px !important;
+  overflow: hidden !important;
+  border: none !important;
+}
+
+/* Collapse/expand toggle button — always visible, floats on edge */
+[data-testid="stSidebarCollapseButton"]{
+  display: flex !important;
+  position: fixed !important;
+  z-index: 9999 !important;
+  top: 12px !important;
+  right: 12px !important;
+  background: var(--accent) !important;
+  border-radius: 50% !important;
+  width: 40px !important;
+  height: 40px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.5) !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+}
+[data-testid="stSidebarCollapseButton"]:hover{
+  background: var(--accent-2) !important;
+}
+[data-testid="stSidebarCollapseButton"] svg{
+  fill: white !important;
+  color: white !important;
+}
+
+/* On mobile: sidebar overlays content instead of pushing it */
+@media (max-width: 768px) {
+  [data-testid="stSidebar"][aria-expanded="true"]{
+    position: fixed !important;
+    top: 0 !important;
+    right: 0 !important;
+    height: 100vh !important;
+    z-index: 9998 !important;
+    width: 85vw !important;
+    min-width: unset !important;
+    max-width: 340px !important;
+    box-shadow: -8px 0 32px rgba(0,0,0,0.6) !important;
+  }
+  [data-testid="stSidebarCollapseButton"]{
+    top: 8px !important;
+    right: 8px !important;
+  }
+}
 
 .hr-accent{ height:2px; border:0; background:linear-gradient(90deg, transparent, var(--accent), transparent); margin: 8px 0 14px; }
 
