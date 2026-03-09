@@ -865,6 +865,40 @@ def main() -> None:
         project_name = create_project_dropdown(conn, company_name)
         type_label, type_key = create_type_dropdown()
 
+        # Search button that auto-collapses the sidebar
+        st.markdown("---")
+        st.button("🔍 بحث", key="sidebar_search_btn", use_container_width=True)
+        st.markdown(
+            """
+            <script>
+            (function() {
+                function collapseSidebar() {
+                    var sidebar = document.querySelector('[data-testid="stSidebar"]');
+                    if (!sidebar || sidebar.getAttribute('aria-expanded') === 'false') return;
+                    var btn = document.querySelector('[data-testid="stSidebarCollapseButton"] button');
+                    if (!btn) {
+                        var wrapper = document.querySelector('[data-testid="stSidebarCollapseButton"]');
+                        if (wrapper) btn = wrapper.querySelector('button');
+                    }
+                    if (btn) btn.click();
+                }
+                var observer = new MutationObserver(function() {
+                    document.querySelectorAll('button').forEach(function(b) {
+                        if (b.innerText.includes('بحث') && !b._sidebarListenerAdded) {
+                            b._sidebarListenerAdded = true;
+                            b.addEventListener('click', function() {
+                                setTimeout(collapseSidebar, 350);
+                            });
+                        }
+                    });
+                });
+                observer.observe(document.body, { childList: true, subtree: true });
+            })();
+            </script>
+            """,
+            unsafe_allow_html=True,
+        )
+
     if not company_name or not project_name or not type_key:
         st.info("برجاء اختيار الشركة والمشروع ونوع البيانات من الشريط الجانبي لعرض النتائج.")
         return
