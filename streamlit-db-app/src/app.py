@@ -867,37 +867,38 @@ def main() -> None:
 
         # Search button that auto-collapses the sidebar
         st.markdown("---")
-        st.button("🔍 بحث", key="sidebar_search_btn", use_container_width=True)
-        st.markdown(
-            """
-            <script>
-            (function() {
-                function collapseSidebar() {
-                    var sidebar = document.querySelector('[data-testid="stSidebar"]');
-                    if (!sidebar || sidebar.getAttribute('aria-expanded') === 'false') return;
-                    var btn = document.querySelector('[data-testid="stSidebarCollapseButton"] button');
-                    if (!btn) {
-                        var wrapper = document.querySelector('[data-testid="stSidebarCollapseButton"]');
-                        if (wrapper) btn = wrapper.querySelector('button');
-                    }
-                    if (btn) btn.click();
-                }
-                var observer = new MutationObserver(function() {
-                    document.querySelectorAll('button').forEach(function(b) {
-                        if (b.innerText.includes('بحث') && !b._sidebarListenerAdded) {
-                            b._sidebarListenerAdded = true;
-                            b.addEventListener('click', function() {
-                                setTimeout(collapseSidebar, 350);
-                            });
+        search_clicked = st.button("🔍 بحث", key="sidebar_search_btn", use_container_width=True)
+
+        # Use components.html to reliably execute JS (st.markdown scripts are stripped)
+        import streamlit.components.v1 as components
+        if search_clicked:
+            components.html(
+                """
+                <script>
+                (function() {
+                    function collapse() {
+                        // walk up from iframe to parent window
+                        var w = window.parent;
+                        var sidebar = w.document.querySelector('[data-testid="stSidebar"]');
+                        if (!sidebar) return;
+                        // already collapsed
+                        if (sidebar.getAttribute('aria-expanded') === 'false') return;
+                        // find the collapse button in parent document
+                        var btn = w.document.querySelector('[data-testid="stSidebarCollapseButton"] button');
+                        if (!btn) {
+                            var wrap = w.document.querySelector('[data-testid="stSidebarCollapseButton"]');
+                            if (wrap) btn = wrap.querySelector('button');
                         }
-                    });
-                });
-                observer.observe(document.body, { childList: true, subtree: true });
-            })();
-            </script>
-            """,
-            unsafe_allow_html=True,
-        )
+                        if (btn) { btn.click(); }
+                    }
+                    // slight delay to let Streamlit re-render first
+                    setTimeout(collapse, 200);
+                })();
+                </script>
+                """,
+                height=0,
+                width=0,
+            )
 
     if not company_name or not project_name or not type_key:
         st.info("برجاء اختيار الشركة والمشروع ونوع البيانات من الشريط الجانبي لعرض النتائج.")
