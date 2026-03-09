@@ -115,6 +115,13 @@ def register_arabic_font() -> Tuple[str, bool]:
             return name, True
         except Exception:
             pass
+    # Fallback: try to register DejaVuSans if available
+    try:
+        dejavu_path = str(Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"))
+        pdfmetrics.registerFont(TTFont("DejaVuSans", dejavu_path))
+        return "DejaVuSans", True
+    except Exception:
+        pass
     return "Helvetica", False
 
 
