@@ -974,9 +974,19 @@ def main() -> None:
                 st.info("لا توجد نتائج بعد تطبيق البحث.")
                 return
 
-        df_flow_display = df_flow.drop(columns=["companyid", "contractid"], errors="ignore")
+        df_flow_display = df_flow.drop(columns=["companyid", "contractid", "delta"], errors="ignore")
+
+        # Build column config: make ALL رابط columns clickable links
+        flow_col_config = {}
+        for col in df_flow_display.columns:
+            if "رابط" in str(col):
+                flow_col_config[col] = st.column_config.LinkColumn(
+                    label=col,
+                    display_text="🔗 فتح الرابط",
+                )
+
         st.markdown('<div class="card soft">', unsafe_allow_html=True)
-        st.dataframe(df_flow_display, use_container_width=True, hide_index=True)
+        st.dataframe(df_flow_display, column_config=flow_col_config, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
         xlsx_flow = make_excel_bytes(df_flow_display, sheet_name="دفتر_التدفق", title_line=title_flow, put_logo=True)
@@ -997,17 +1007,26 @@ def main() -> None:
 
         link_cols = [c for c in df_flow_display.columns if "رابط" in str(c)]
         if link_cols:
-            with st.spinner("جارٍ إنشاء أرشيف ZIP ..."):
-                zip_bytes, errors = _create_zip_from_links(df_flow_display, link_cols[0])
-            if not zip_bytes:
-                st.error("فشل إنشاء ملف ZIP.")
-                if errors: st.warning(f"أخطاء: {len(errors)} حالات.")
-            else:
-                lbl = "⬇️ تنزيل كل المستخلصات (ZIP)" if type_label and "مستخلص" in str(type_label) else "⬇️ تنزيل الكل (ZIP)"
-                st.download_button(lbl, zip_bytes,
-                                   file_name=_safe_filename(f"{type_label or 'الملفات'}_{company_name}_{project_name}.zip"),
-                                   mime="application/zip")
-                if errors: st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
+            # Offer a separate ZIP button for each link column
+            for lc in link_cols:
+                btn_label = (
+                    "⬇️ تنزيل كل المستخلصات (ZIP)" if "مستخلص" in str(lc)
+                    else "⬇️ تنزيل كل الشيكات (ZIP)" if "شيك" in str(lc)
+                    else f"⬇️ تنزيل {lc} (ZIP)"
+                )
+                with st.spinner(f"جارٍ إنشاء أرشيف {lc} ..."):
+                    zip_bytes, errors = _create_zip_from_links(df_flow_display, lc)
+                if not zip_bytes:
+                    st.error(f"فشل إنشاء ملف ZIP لـ {lc}.")
+                    if errors: st.warning(f"أخطاء: {len(errors)} حالات.")
+                else:
+                    st.download_button(
+                        btn_label, zip_bytes,
+                        file_name=_safe_filename(f"{lc}_{company_name}_{project_name}.zip"),
+                        mime="application/zip",
+                        key=f"zip_{lc}_{company_name}_{project_name}"
+                    )
+                    if errors: st.warning(f"بعض الملفات لم تُحمّل ({len(errors)}).")
 
         st.markdown("### تنزيل تقرير موحّد")
         excel_two = make_excel_combined_two_sheets(
