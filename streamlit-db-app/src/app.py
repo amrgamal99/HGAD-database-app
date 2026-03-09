@@ -860,22 +860,6 @@ def main() -> None:
         return
 
     with st.sidebar:
-        DRIVE_FILE_URL = "https://drive.google.com/file/d/1BBjG_OWNr__BpDN6MOsj_VG8M0D8_b78/view?usp=drive_link"
-        st.markdown(
-            f'''
-            <div style="padding:8px 6px 12px 6px;">
-              <a href="{DRIVE_FILE_URL}" target="_blank" rel="noopener noreferrer"
-                 style="display:inline-flex; gap:10px; align-items:center; text-decoration:none;
-                        padding:6px 10px; border-radius:10px;
-                        background:linear-gradient(90deg,rgba(37,99,235,.10),rgba(37,99,235,.04));
-                        border:1px solid rgba(37,99,235,.10);">
-                <span style="font-size:20px;">📁</span>
-                <span style="font-weight:800; color:#dbeafe; font-size:13px;">التدفق نقدي الاجمالي الي 31-10-2025</span>
-              </a>
-            </div>
-            ''',
-            unsafe_allow_html=True,
-        )
         st.title("عوامل التصفية")
         company_name = create_company_dropdown(conn)
         project_name = create_project_dropdown(conn, company_name)
