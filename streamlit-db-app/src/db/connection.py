@@ -177,12 +177,9 @@ def fetch_financial_flow_view(supabase: Client, company_name: str, project_name:
 
     try:
         q = supabase.table("v_financial_flow").select(
-              'companyid, contractid, "التاريخ", "نوع العملية", "اسم المستخلص", '
-              '"صافي المستحق بعد الخصومات", '
-              '"رقم الشيك", "البنك", "قيمة الشيك", "الغرض من إصدار الشيك", "المتبقي"'
+            'companyid, contractid, "التاريخ", "نوع العملية", "اسم المستخلص", "إجمالي المستخلص شامل الضريبة", "قيمة المستخلص قبل الخصومات", "صافي المستحق بعد الخصومات", "ضريبة قيمة مضافة", "تأمين ابتدائي", "تأمين نهائي", "خصم منبع", "دمغة هندسية", "خصم دفعة مقدمة", "خصم دفعة مقدمة 2", "خصومات موقع", "تامينات اجتماعية", "عمالة غير منتظمة", "استهلاك استشاري و مالي", "خصم تعاقدي", "دمغة اتحاد وتشيد", "ضرائب عامة", "اجمالي خصومات", "رابط نسخة المستخلص", "رقم الشيك", "البنك", "قيمة الشيك", "الغرض من إصدار الشيك", "المتبقي"'
         ).eq("contractid", contract_id)
 
-        # استخدم filter مع أسماء الأعمدة العربية
         if date_from:
             q = q.filter('التاريخ', 'gte', str(date_from))
         if date_to:
@@ -190,13 +187,15 @@ def fetch_financial_flow_view(supabase: Client, company_name: str, project_name:
 
         resp = q.order("التاريخ", desc=False).execute()
         df = pd.DataFrame(resp.data or [])
-        # تنسيقات
+        # Format date columns
         if not df.empty:
-            for col in ["التاريخ"]:
+            if "التاريخ" in df.columns:
                 try:
-                    df[col] = pd.to_datetime(df[col]).dt.strftime("%Y-%m-%d")
+                    df["التاريخ"] = pd.to_datetime(df["التاريخ"]).dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
+            # Remove columns where all values are null
+            df.dropna(axis=1, how="all", inplace=True)
         return df
     except Exception as e:
         st.caption(f"⚠️ fetch_financial_flow_view error: {e}")
@@ -208,11 +207,9 @@ def fetch_contract_summary_view(supabase: Client, company_name: str, project_nam
     if not company_id or not contract_id:
         return pd.DataFrame()
     try:
-        # نختار بالاسم والتعاقد لضمان صف واحد
         resp = (
             supabase.table("v_contract_summary")
-            .select('"اسم المشروع","تاريخ التعاقد","قيمة التعاقد","حجم الاعمال المنفذة",'
-                    '"نسبة الاعمال المنفذة","الدفعه المقدمه","التحصيلات","المستحق صرفه"')
+            .select('"اسم المشروع","تاريخ التعاقد","قيمة التعاقد","حجم الاعمال المنفذة","نسبة الاعمال المنفذة","الدفعه المقدمه","التحصيلات","المستحق صرفه"')
             .filter('اسم المشروع', 'eq', project_name)
             .execute()
         )
@@ -223,7 +220,9 @@ def fetch_contract_summary_view(supabase: Client, company_name: str, project_nam
                     df["تاريخ التعاقد"] = pd.to_datetime(df["تاريخ التعاقد"]).dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
-        return df.head(1)  # بطاقة واحدة
+            # Remove columns where all values are null
+            df.dropna(axis=1, how="all", inplace=True)
+        return df.head(1)
     except Exception as e:
         st.caption(f"⚠️ fetch_contract_summary_view error: {e}")
         return pd.DataFrame()
