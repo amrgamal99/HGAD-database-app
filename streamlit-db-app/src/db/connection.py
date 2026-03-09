@@ -228,8 +228,7 @@ def fetch_financial_flow_view(
                     df["التاريخ"] = pd.to_datetime(df["التاريخ"]).dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
-            # Drops "المستحق صرفه من تامينات اجتماعيه" automatically
-            # for contracts where it is NULL in every row
+            # Auto-drops fully-NULL columns (e.g. insurance col for contracts with no insurance)
             df.dropna(axis=1, how="all", inplace=True)
 
         return df
@@ -259,7 +258,8 @@ def fetch_contract_summary_view(
                 '"الدفعه المقدمه",'
                 '"التحصيلات",'
                 '"المستحق صرفه",'
-                '"المستحق صرفه من تامينات اجتماعيه"'
+                '"المستحق صرفه من تامينات اجتماعيه",'
+                '"المتبقي من دفعات المقدمه"'   # ← new column
             )
             .filter('اسم المشروع', 'eq', project_name)
             .execute()
@@ -271,7 +271,7 @@ def fetch_contract_summary_view(
                     df["تاريخ التعاقد"] = pd.to_datetime(df["تاريخ التعاقد"]).dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
-            # NULL insurance column dropped automatically for contracts with no insurance
+            # NULL columns (insurance, advance balance) auto-dropped for contracts with no data
             df.dropna(axis=1, how="all", inplace=True)
         return df.head(1)
     except Exception as e:
