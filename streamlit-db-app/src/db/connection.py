@@ -59,7 +59,10 @@ def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFra
         st.caption(f"⚠️ fetch_projects_by_company error: {e}")
         return pd.DataFrame(columns=["اسم المشروع"])
 
-def _get_company_and_contract_ids(supabase: Client, company_name: str, project_name: str) -> tuple[int | None, int | None]:
+
+def _get_company_and_contract_ids(
+    supabase: Client, company_name: str, project_name: str
+) -> tuple[int | None, int | None]:
     try:
         company_resp = (
             supabase.table("company")
@@ -86,6 +89,7 @@ def _get_company_and_contract_ids(supabase: Client, company_name: str, project_n
     except Exception as e:
         st.caption(f"⚠️ _get_company_and_contract_ids error: {e}")
         return None, None
+
 
 # البيانات الخام (للأنواع الأخرى)
 def fetch_data(supabase: Client, company_name: str, project_name: str, target_table: str) -> pd.DataFrame:
@@ -158,15 +162,20 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
         st.caption(f"⚠️ fetch_data error: {e}")
         return pd.DataFrame()
 
+
 # ── جلب v_financial_flow ──────────────────────────────────────────────────────
-def fetch_financial_flow_view(supabase: Client, company_name: str, project_name: str,
-                              date_from=None, date_to=None) -> pd.DataFrame:
+def fetch_financial_flow_view(
+    supabase: Client,
+    company_name: str,
+    project_name: str,
+    date_from=None,
+    date_to=None,
+) -> pd.DataFrame:
     company_id, contract_id = _get_company_and_contract_ids(supabase, company_name, project_name)
     if not company_id or not contract_id:
         return pd.DataFrame()
 
     try:
-        # ✅ Fixed: removed duplicate comma and removed deleted link columns
         select_cols = (
             'companyid,'
             'contractid,'
@@ -195,7 +204,8 @@ def fetch_financial_flow_view(supabase: Client, company_name: str, project_name:
             '"البنك",'
             '"قيمة الشيك",'
             '"الغرض من إصدار الشيك",'
-            '"المتبقي"'
+            '"المتبقي",'
+            '"المستحق صرفه من تامينات اجتماعيه"'
         )
 
         q = (
@@ -218,7 +228,8 @@ def fetch_financial_flow_view(supabase: Client, company_name: str, project_name:
                     df["التاريخ"] = pd.to_datetime(df["التاريخ"]).dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
-            # Remove columns where ALL values are null
+            # Drops "المستحق صرفه من تامينات اجتماعيه" automatically
+            # for contracts where it is NULL in every row
             df.dropna(axis=1, how="all", inplace=True)
 
         return df
@@ -226,8 +237,13 @@ def fetch_financial_flow_view(supabase: Client, company_name: str, project_name:
         st.caption(f"⚠️ fetch_financial_flow_view error: {e}")
         return pd.DataFrame()
 
+
 # ── جلب v_contract_summary ────────────────────────────────────────────────────
-def fetch_contract_summary_view(supabase: Client, company_name: str, project_name: str) -> pd.DataFrame:
+def fetch_contract_summary_view(
+    supabase: Client,
+    company_name: str,
+    project_name: str,
+) -> pd.DataFrame:
     company_id, contract_id = _get_company_and_contract_ids(supabase, company_name, project_name)
     if not company_id or not contract_id:
         return pd.DataFrame()
@@ -242,7 +258,8 @@ def fetch_contract_summary_view(supabase: Client, company_name: str, project_nam
                 '"نسبة الاعمال المنفذة",'
                 '"الدفعه المقدمه",'
                 '"التحصيلات",'
-                '"المستحق صرفه"'
+                '"المستحق صرفه",'
+                '"المستحق صرفه من تامينات اجتماعيه"'
             )
             .filter('اسم المشروع', 'eq', project_name)
             .execute()
@@ -254,6 +271,7 @@ def fetch_contract_summary_view(supabase: Client, company_name: str, project_nam
                     df["تاريخ التعاقد"] = pd.to_datetime(df["تاريخ التعاقد"]).dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
+            # NULL insurance column dropped automatically for contracts with no insurance
             df.dropna(axis=1, how="all", inplace=True)
         return df.head(1)
     except Exception as e:
