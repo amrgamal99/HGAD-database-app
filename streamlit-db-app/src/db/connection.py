@@ -176,6 +176,8 @@ def fetch_financial_flow_view(
         return pd.DataFrame()
 
     try:
+        # ✅ Column order matches the updated view:
+        # صافي المستحق بعد الخصومات moved after اجمالي خصومات, before رقم الشيك
         select_cols = (
             'companyid,'
             'contractid,'
@@ -184,7 +186,6 @@ def fetch_financial_flow_view(
             '"اسم المستخلص",'
             '"إجمالي المستخلص شامل الضريبة",'
             '"قيمة المستخلص قبل الخصومات",'
-            '"صافي المستحق بعد الخصومات",'
             '"ضريبة قيمة مضافة",'
             '"تأمين ابتدائي",'
             '"تأمين نهائي",'
@@ -200,6 +201,7 @@ def fetch_financial_flow_view(
             '"دمغة اتحاد وتشيد",'
             '"ضرائب عامة",'
             '"اجمالي خصومات",'
+            '"صافي المستحق بعد الخصومات",'
             '"رقم الشيك",'
             '"البنك",'
             '"قيمة الشيك",'
@@ -259,7 +261,7 @@ def fetch_contract_summary_view(
                 '"التحصيلات",'
                 '"المستحق صرفه",'
                 '"المستحق صرفه من تامينات اجتماعيه",'
-                '"المتبقي من دفعات المقدمه"'   # ← new column
+                '"المتبقي من دفعات المقدمه"'
             )
             .filter('اسم المشروع', 'eq', project_name)
             .execute()
@@ -271,7 +273,7 @@ def fetch_contract_summary_view(
                     df["تاريخ التعاقد"] = pd.to_datetime(df["تاريخ التعاقد"]).dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
-            # NULL columns (insurance, advance balance) auto-dropped for contracts with no data
+            # NULL columns auto-dropped for contracts with no insurance/advance data
             df.dropna(axis=1, how="all", inplace=True)
         return df.head(1)
     except Exception as e:
