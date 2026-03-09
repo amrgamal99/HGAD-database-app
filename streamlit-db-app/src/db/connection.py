@@ -21,7 +21,6 @@ def fetch_companies(supabase: Client) -> pd.DataFrame:
         resp = supabase.table("company").select("companyname").execute()
         df = pd.DataFrame(resp.data or [])
         df = df.rename(columns={"companyname": "اسم الشركة"})
-        # sort alphabetically
         if not df.empty:
             df = df.drop_duplicates().sort_values("اسم الشركة", key=lambda s: s.str.lower())
         else:
@@ -106,7 +105,6 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
             )
             data = [resp.data] if resp.data else []
         elif tbl in ["guarantee", "invoice", "checks", "social_insurance_certificate"]:
-            # treat social_insurance_certificate same as invoice (filtered by companyid+contractid)
             resp = (
                 supabase.table(tbl)
                 .select("*")
@@ -121,12 +119,10 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
 
         df = pd.DataFrame(data)
         if not df.empty:
-                df.drop(columns=[c for c in df.columns if c.lower().endswith("id")],
+            df.drop(columns=[c for c in df.columns if c.lower().endswith("id")],
                     inplace=True, errors="ignore")
-                # Drop columns where all values are null
-                df.dropna(axis=1, how="all", inplace=True)
+            df.dropna(axis=1, how="all", inplace=True)
 
-        # format date-like columns
         for col in df.columns:
             if "تاريخ" in col or "إصدار" in col:
                 try:
@@ -134,27 +130,21 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
                 except Exception:
                     pass
 
-        # If it's the social_insurance_certificate table, normalize the "اسم الشهادة" values
         if tbl == "social_insurance_certificate" and "اسم الشهادة" in df.columns:
             try:
                 def normalize_name(val):
                     if pd.isna(val):
                         return "شهاده تامينات جاري"
                     s = str(val).strip()
-                    # find first number (Latin or Arabic-Indic) anywhere in the string
                     m = re.search(r'([0-9\u0660-\u0669\u06F0-\u06F9]+)', s)
                     if m:
                         num = m.group(1)
-                        # place the number after "جاري" for clarity
                         return f"شهاده تامينات جاري {num}"
-                    # fallback to plain label when no number found
                     return "شهاده تامينات جاري"
-
                 df["اسم الشهادة"] = df["اسم الشهادة"].apply(normalize_name)
             except Exception:
                 pass
 
-        # Sort by the first date-like column (old → new) for invoice/checks/social_insurance_certificate
         if tbl in ["invoice", "checks", "social_insurance_certificate"] and not df.empty:
             date_cols = [c for c in df.columns if "تاريخ" in c or "إصدار" in c]
             if date_cols:
@@ -168,7 +158,7 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
         st.caption(f"⚠️ fetch_data error: {e}")
         return pd.DataFrame()
 
-# === NEW: جلب v_financial_flow مع فلاتر التاريخ ===
+# ── جلب v_financial_flow ──────────────────────────────────────────────────────
 def fetch_financial_flow_view(supabase: Client, company_name: str, project_name: str,
                               date_from=None, date_to=None) -> pd.DataFrame:
     company_id, contract_id = _get_company_and_contract_ids(supabase, company_name, project_name)
@@ -176,9 +166,43 @@ def fetch_financial_flow_view(supabase: Client, company_name: str, project_name:
         return pd.DataFrame()
 
     try:
-        q = supabase.table("v_financial_flow").select(
-            'companyid, contractid, "التاريخ", "نوع العملية", "اسم المستخلص", "إجمالي المستخلص شامل الضريبة", "قيمة المستخلص قبل الخصومات", "صافي المستحق بعد الخصومات", "ضريبة قيمة مضافة", "تأمين ابتدائي", "تأمين نهائي", "خصم منبع", "دمغة هندسية", "خصم دفعة مقدمة", "خصم دفعة مقدمة 2", "خصومات موقع", "تامينات اجتماعية", "عمالة غير منتظمة", "استهلاك استشاري و مالي", "خصم تعاقدي", "دمغة اتحاد وتشيد", "ضرائب عامة", "اجمالي خصومات", , "رقم الشيك", "البنك", "قيمة الشيك", "الغرض من إصدار الشيك","المتبقي"'
-        ).eq("contractid", contract_id)
+        # ✅ Fixed: removed duplicate comma and removed deleted link columns
+        select_cols = (
+            'companyid,'
+            'contractid,'
+            '"التاريخ",'
+            '"نوع العملية",'
+            '"اسم المستخلص",'
+            '"إجمالي المستخلص شامل الضريبة",'
+            '"قيمة المستخلص قبل الخصومات",'
+            '"صافي المستحق بعد الخصومات",'
+            '"ضريبة قيمة مضافة",'
+            '"تأمين ابتدائي",'
+            '"تأمين نهائي",'
+            '"خصم منبع",'
+            '"دمغة هندسية",'
+            '"خصم دفعة مقدمة",'
+            '"خصم دفعة مقدمة 2",'
+            '"خصومات موقع",'
+            '"تامينات اجتماعية",'
+            '"عمالة غير منتظمة",'
+            '"استهلاك استشاري و مالي",'
+            '"خصم تعاقدي",'
+            '"دمغة اتحاد وتشيد",'
+            '"ضرائب عامة",'
+            '"اجمالي خصومات",'
+            '"رقم الشيك",'
+            '"البنك",'
+            '"قيمة الشيك",'
+            '"الغرض من إصدار الشيك",'
+            '"المتبقي"'
+        )
+
+        q = (
+            supabase.table("v_financial_flow")
+            .select(select_cols)
+            .eq("contractid", contract_id)
+        )
 
         if date_from:
             q = q.filter('التاريخ', 'gte', str(date_from))
@@ -187,21 +211,22 @@ def fetch_financial_flow_view(supabase: Client, company_name: str, project_name:
 
         resp = q.order("التاريخ", desc=False).execute()
         df = pd.DataFrame(resp.data or [])
-        # Format date columns
+
         if not df.empty:
             if "التاريخ" in df.columns:
                 try:
                     df["التاريخ"] = pd.to_datetime(df["التاريخ"]).dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
-            # Remove columns where all values are null
+            # Remove columns where ALL values are null
             df.dropna(axis=1, how="all", inplace=True)
+
         return df
     except Exception as e:
         st.caption(f"⚠️ fetch_financial_flow_view error: {e}")
         return pd.DataFrame()
 
-# === NEW: جلب v_contract_summary كسطر ملخّص واحد للمشروع ===
+# ── جلب v_contract_summary ────────────────────────────────────────────────────
 def fetch_contract_summary_view(supabase: Client, company_name: str, project_name: str) -> pd.DataFrame:
     company_id, contract_id = _get_company_and_contract_ids(supabase, company_name, project_name)
     if not company_id or not contract_id:
@@ -209,7 +234,16 @@ def fetch_contract_summary_view(supabase: Client, company_name: str, project_nam
     try:
         resp = (
             supabase.table("v_contract_summary")
-            .select('"اسم المشروع","تاريخ التعاقد","قيمة التعاقد","حجم الاعمال المنفذة","نسبة الاعمال المنفذة","الدفعه المقدمه","التحصيلات","المستحق صرفه"')
+            .select(
+                '"اسم المشروع",'
+                '"تاريخ التعاقد",'
+                '"قيمة التعاقد",'
+                '"حجم الاعمال المنفذة",'
+                '"نسبة الاعمال المنفذة",'
+                '"الدفعه المقدمه",'
+                '"التحصيلات",'
+                '"المستحق صرفه"'
+            )
             .filter('اسم المشروع', 'eq', project_name)
             .execute()
         )
@@ -220,7 +254,6 @@ def fetch_contract_summary_view(supabase: Client, company_name: str, project_nam
                     df["تاريخ التعاقد"] = pd.to_datetime(df["تاريخ التعاقد"]).dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
-            # Remove columns where all values are null
             df.dropna(axis=1, how="all", inplace=True)
         return df.head(1)
     except Exception as e:
