@@ -76,21 +76,38 @@ _NOTO_URL  = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/Noto
 
 def _format_date_arabic(val) -> str:
     """
-    Convert various date representations to a clean Arabic-friendly
-    date string: YYYY/MM/DD  (or DD/MM/YYYY — change fmt below).
-    Returns original string if conversion fails.
+    Convert various date representations to a clean date string: YYYY/MM/DD.
+    Handles: datetime objects, YYYYMMDD integers/strings, ISO strings, and common formats.
     """
-    if val is None or (isinstance(val, float) and pd.isna(val)):
+    if val is None:
         return ""
+    # Handle pandas/numpy NaT and NaN
+    try:
+        if pd.isna(val):
+            return ""
+    except Exception:
+        pass
     sval = str(val).strip()
-    if not sval or sval.lower() in ("nan", "none", "nat"):
+    if not sval or sval.lower() in ("nan", "none", "nat", ""):
         return ""
+    # Remove decimal part if stored as float e.g. "20250305.0"
+    if re.match(r"^\d{8}\.0$", sval):
+        sval = sval.split(".")[0]
+    # Handle compact YYYYMMDD format (e.g. "20250305")
+    if re.match(r"^\d{8}$", sval):
+        try:
+            from datetime import datetime
+            dt = datetime.strptime(sval, "%Y%m%d")
+            return dt.strftime("%Y/%m/%d")
+        except Exception:
+            pass
+    # Try pandas parsing
     try:
         dt = pd.to_datetime(sval, dayfirst=False, errors="coerce")
         if pd.isna(dt):
             dt = pd.to_datetime(sval, dayfirst=True, errors="coerce")
         if pd.notna(dt):
-            return dt.strftime("%Y/%m/%d")   # ← change to "%d/%m/%Y" if preferred
+            return dt.strftime("%Y/%m/%d")
     except Exception:
         pass
     return sval
@@ -684,13 +701,17 @@ def compose_pdf_title(company: str, project: str, data_type: str, dfrom, dto) ->
     return _compose_title(company, project, data_type, dfrom, dto)
 
 def _shape(text: str) -> str:
-    """Shape + bidi any string — always apply for best Arabic rendering."""
+    """Shape + bidi any string — always apply for best Arabic rendering.
+    For mixed content (e.g. English bank name, numbers), passes through as-is
+    but always applies Arabic reshaping when Arabic chars are present.
+    """
     s = str(text) if text is not None else ""
     if not s or s.lower() in ("nan", "none"):
         return ""
-    # Always reshape; it's safe for Latin text too with good Arabic fonts
+    # If any Arabic chars present, reshape the whole string (handles mixed content too)
     if looks_arabic(s):
         return shape_arabic(s)
+    # Pure English/numbers — return unchanged, will render fine with Latin-capable font
     return s
 
 def _pdf_header_elements(title_line: str) -> Tuple[List, float]:
@@ -747,7 +768,7 @@ def _pdf_table(
     )
     cell_ltr = ParagraphStyle(
         name="CellL", fontName=font_name, fontSize=font_size,
-        leading=font_size + 1.5, alignment=0, textColor=colors.black
+        leading=font_size + 1.5, alignment=1, textColor=colors.black
     )
     link_style = ParagraphStyle(
         name="Link", fontName=font_name, fontSize=font_size,
@@ -784,7 +805,10 @@ def _pdf_table(
                 cells.append(Paragraph(html, link_style))
             else:
                 shaped = _shape(sval)
-                style  = cell_rtl if looks_arabic(sval) else cell_ltr
+                # Always use RTL/right-align style for consistency in RTL tables.
+                # English values (bank names etc.) are centered via cell_ltr but
+                # right-align ensures they are visible and consistent.
+                style = cell_rtl if (looks_arabic(sval) or not sval.strip()) else cell_ltr
                 cells.append(Paragraph(shaped, style))
         rows.append(cells)
 
