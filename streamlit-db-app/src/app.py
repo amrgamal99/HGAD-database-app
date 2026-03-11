@@ -73,78 +73,6 @@ _AR_RE = re.compile(r"[\u0600-\u06FF]")
 _AMIRI_URL = "https://github.com/aliftype/amiri/raw/main/Amiri-Regular.ttf"
 _NOTO_URL  = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoNaskhArabic/NotoNaskhArabic-Regular.ttf"
 
-# ── Arabic bank name mapping ──────────────────────────────────────────────────
-BANK_NAME_AR: Dict[str, str] = {
-    # Common English → Arabic bank names; extend as needed
-    "national_bank":           "البنك الأهلي المصري",
-    "national bank":           "البنك الأهلي المصري",
-    "ahly":                    "البنك الأهلي المصري",
-    "nbe":                     "البنك الأهلي المصري",
-    "banque_misr":             "بنك مصر",
-    "banque misr":             "بنك مصر",
-    "misr":                    "بنك مصر",
-    "cib":                     "البنك التجاري الدولي",
-    "commercial_international": "البنك التجاري الدولي",
-    "commercial international": "البنك التجاري الدولي",
-    "qnb":                     "بنك قطر الوطني",
-    "qatar_national":          "بنك قطر الوطني",
-    "hsbc":                    "بنك HSBC مصر",
-    "arab_african":            "البنك العربي الأفريقي",
-    "arab african":            "البنك العربي الأفريقي",
-    "aaib":                    "البنك العربي الأفريقي",
-    "cairo":                   "بنك القاهرة",
-    "bank_of_cairo":           "بنك القاهرة",
-    "bank of cairo":           "بنك القاهرة",
-    "alex":                    "بنك الإسكندرية",
-    "bank_of_alexandria":      "بنك الإسكندرية",
-    "bank of alexandria":      "بنك الإسكندرية",
-    "faisal":                  "بنك فيصل الإسلامي",
-    "faisal_islamic":          "بنك فيصل الإسلامي",
-    "faisal islamic":          "بنك فيصل الإسلامي",
-    "arab_bank":               "البنك العربي",
-    "arab bank":               "البنك العربي",
-    "audi":                    "بنك عودة",
-    "blom":                    "بنك بلوم",
-    "suez_canal":              "بنك قناة السويس",
-    "suez canal":              "بنك قناة السويس",
-    "scb":                     "بنك قناة السويس",
-    "credit_agricole":         "كريدي أجريكول مصر",
-    "credit agricole":         "كريدي أجريكول مصر",
-    "societe_generale":        "سوسيتيه جنرال",
-    "societe generale":        "سوسيتيه جنرال",
-    "ube":                     "البنك المصري المتحد",
-    "united_bank":             "البنك المصري المتحد",
-    "united bank":             "البنك المصري المتحد",
-    "al_ahli":                 "البنك الأهلي",
-    "al ahli":                 "البنك الأهلي",
-    "mashreq":                 "بنك المشرق",
-    "emirates":                "بنك الإمارات",
-    "enbd":                    "بنك الإمارات دبي الوطني",
-    "transfer":                "تحويل بنكي",
-    "bank_transfer":           "تحويل بنكي",
-    "bank transfer":           "تحويل بنكي",
-}
-
-def _translate_bank(val: str) -> str:
-    """Return Arabic bank name if we know the English key, else return as-is."""
-    if not val or looks_arabic(val):
-        return val
-    key = val.strip().lower().replace("-", "_")
-    # exact match
-    if key in BANK_NAME_AR:
-        return BANK_NAME_AR[key]
-    # partial match
-    for eng, ar in BANK_NAME_AR.items():
-        if eng in key or key in eng:
-            return ar
-    # Remove underscores and return
-    return val.replace("_", " ")
-
-
-def _clean_underscores(val: str) -> str:
-    """Replace underscores with spaces in any string value."""
-    return str(val).replace("_", " ")
-
 
 def _format_date_arabic(val) -> str:
     """
@@ -409,48 +337,32 @@ st.markdown('<hr class="hr-accent"/>', unsafe_allow_html=True)
 # =========================================================
 # PDF pre-processing helpers
 # =========================================================
-_DATE_KEYWORDS  = ["تاريخ", "date", "تعاقد", "إصدار", "اصدار"]
-_BANK_KEYWORDS  = ["بنك", "bank", "البنك"]
+_DATE_KEYWORDS = ["تاريخ", "date", "تعاقد", "إصدار", "اصدار"]
 
 def _is_date_col(col_name: str) -> bool:
     cn = str(col_name).lower()
     return any(k in cn for k in _DATE_KEYWORDS)
-
-def _is_bank_col(col_name: str) -> bool:
-    cn = str(col_name).lower()
-    return any(k in cn for k in _BANK_KEYWORDS)
 
 def _is_percentage_col(col_name: str) -> bool:
     return "نسبة الاعمال المنفذة" in str(col_name)
 
 def _preprocess_df_for_pdf(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Apply all PDF-specific fixes to a dataframe before rendering:
+    Apply PDF-specific fixes to a dataframe before rendering:
       1. Date columns → YYYY/MM/DD string
-      2. Bank columns → Arabic bank name (no underscores)
-      3. All string values → remove underscores
-      4. نسبة الاعمال المنفذة → append % if missing
+      2. نسبة الاعمال المنفذة → append % if missing
+    All other values (bank names, project names, etc.) are shown exactly as stored in the database.
     """
     out = df.copy()
     for col in out.columns:
         if _is_date_col(col):
             out[col] = out[col].map(_format_date_arabic)
-        elif _is_bank_col(col):
-            out[col] = out[col].map(
-                lambda v: _translate_bank(_clean_underscores(str(v))) if pd.notna(v) and str(v).strip() not in ("", "nan") else ""
-            )
         elif _is_percentage_col(col):
             def _add_pct(v):
                 s = str(v) if pd.notna(v) else ""
                 if not s or s.lower() in ("nan", "none"): return ""
                 return s if s.strip().endswith("%") else f"{s}%"
             out[col] = out[col].map(_add_pct)
-        else:
-            # Remove underscores from all other string-like columns
-            if out[col].dtype == object:
-                out[col] = out[col].map(
-                    lambda v: _clean_underscores(str(v)) if pd.notna(v) and str(v).strip() not in ("nan",) else (str(v) if pd.notna(v) else "")
-                )
     return out
 
 
@@ -740,14 +652,14 @@ def _plain_number_no_commas(x) -> str:
 
 def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[str]] = None) -> pd.DataFrame:
     """Format numbers in a DataFrame for display; also applies PDF pre-processing."""
-    # First apply PDF-specific fixes (dates, bank names, underscores, percentage)
+    # First apply PDF-specific fixes (dates, percentage)
     out = _preprocess_df_for_pdf(df.copy())
 
     requested = {_normalize_name(c) for c in (no_comma_cols or [])}
     for c in out.columns:
         c_norm = _normalize_name(c)
-        # Skip columns already processed as dates, banks, percentages
-        if _is_date_col(c) or _is_bank_col(c) or _is_percentage_col(c):
+        # Skip columns already processed as dates or percentages
+        if _is_date_col(c) or _is_percentage_col(c):
             continue
         force_plain = (c_norm in requested) or ("شيك" in c_norm)
         if force_plain:
