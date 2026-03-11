@@ -673,23 +673,46 @@ def _fmt_integer(x) -> str:
     except Exception:
         return sx
 
+def _fmt_integer_no_comma(x) -> str:
+    """Format numeric value as integer WITHOUT comma separator — for رقم الشيك."""
+    if x is None: return ""
+    try:
+        if pd.isna(x): return ""
+    except Exception:
+        pass
+    sx = str(x).replace(",", "").strip()
+    if not sx or sx.lower() in ("nan", "none", ""): return ""
+    try:
+        f = float(sx)
+        if f == 0: return ""
+        return str(int(round(f)))
+    except Exception:
+        return sx
+
+_NO_COMMA_COLS = {"رقمالشيك"}   # normalized names (spaces/tatweel stripped)
+
 def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[str]] = None) -> pd.DataFrame:
     """Format numbers in a DataFrame for display; also applies PDF pre-processing.
     Rules:
-      - Date columns       → YYYY/MM/DD  (handled by _preprocess_df_for_pdf)
-      - نسبة الاعمال المنفذة → kept as-is with % appended
-      - ALL other numeric  → integer with comma thousands (e.g. 1,074,373)
-                             zero / null → empty string
+      - Date columns          → YYYY/MM/DD
+      - نسبة الاعمال المنفذة  → kept as-is with % appended
+      - رقم الشيك             → integer WITHOUT commas (e.g. 63105438)
+      - ALL other numeric     → integer with comma thousands (e.g. 1,074,373)
+      - zero / null           → empty string
     """
-    # Must happen BEFORE numeric formatting so date integers are already strings
     out = _preprocess_df_for_pdf(df.copy())
 
+    # Build the set of no-comma column names (caller can extend via no_comma_cols)
+    extra = {_normalize_name(c) for c in (no_comma_cols or [])}
+    no_comma = _NO_COMMA_COLS | extra
+
     for c in out.columns:
-        # Skip columns already handled
         if _is_date_col(c) or _is_percentage_col(c):
             continue
-        # Format every other column: try to parse as number → integer display
-        out[c] = out[c].map(_fmt_integer)
+        if _normalize_name(c) in no_comma:
+            out[c] = out[c].map(_fmt_integer_no_comma)
+        else:
+            out[c] = out[c].map(_fmt_integer)
     return out
 
 def compose_pdf_title(company: str, project: str, data_type: str, dfrom, dto) -> str:
