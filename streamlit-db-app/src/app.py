@@ -669,7 +669,10 @@ def _plain_number_no_commas(x) -> str:
 
 def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[str]] = None) -> pd.DataFrame:
     """Format numbers in a DataFrame for display; also applies PDF pre-processing."""
-    # First apply PDF-specific fixes (dates, percentage)
+    # First apply PDF-specific fixes (dates → string, percentage → add %)
+    # This must happen BEFORE numeric formatting so date columns stored as
+    # integers (e.g. 20250305) are converted to strings first and never
+    # reach the numeric formatter below.
     out = _preprocess_df_for_pdf(df.copy())
 
     requested = {_normalize_name(c) for c in (no_comma_cols or [])}
@@ -682,19 +685,17 @@ def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[s
         if force_plain:
             out[c] = out[c].map(_plain_number_no_commas)
             continue
-        if pd.api.types.is_numeric_dtype(df[c]):   # use original df dtype
-            out[c] = out[c].map(lambda x: "" if pd.isna(x) else f"{float(x):,.2f}" if str(x).replace('.','',1).replace('-','',1).isdigit() else str(x))
-        else:
-            def _fmt_cell(v):
-                s = str(v)
-                if not s or s.lower() in ("nan", "none"): return ""
-                try:
-                    if s.strip().endswith("%"): return s
-                    fv = float(s.replace(",", ""))
-                    return f"{fv:,.2f}"
-                except Exception:
-                    return s
-            out[c] = out[c].map(_fmt_cell)
+        # Use out[c] (already preprocessed) — check if values look numeric
+        def _fmt_cell(v):
+            s = str(v) if pd.notna(v) else ""
+            if not s or s.lower() in ("nan", "none"): return ""
+            try:
+                if s.strip().endswith("%"): return s
+                fv = float(s.replace(",", ""))
+                return f"{fv:,.2f}"
+            except Exception:
+                return s
+        out[c] = out[c].map(_fmt_cell)
     return out
 
 def compose_pdf_title(company: str, project: str, data_type: str, dfrom, dto) -> str:
@@ -766,8 +767,10 @@ def _pdf_table(
         name="CellR", fontName=font_name, fontSize=font_size,
         leading=font_size + 1.5, alignment=2, textColor=colors.black
     )
+    # For pure English/numeric values: use Helvetica (always available, full Latin)
+    # so bank names, codes, numbers stored as English render correctly in the PDF.
     cell_ltr = ParagraphStyle(
-        name="CellL", fontName=font_name, fontSize=font_size,
+        name="CellL", fontName="Helvetica", fontSize=font_size,
         leading=font_size + 1.5, alignment=1, textColor=colors.black
     )
     link_style = ParagraphStyle(
@@ -792,24 +795,22 @@ def _pdf_table(
         cells = []
         for c in df.columns:
             raw = r[c]
-            # After _preprocess_df_for_pdf all values are already strings
             sval = "" if (raw is None or (isinstance(raw, float) and pd.isna(raw))) else str(raw)
             col_str = str(c)
 
-            # % sign for نسبة الاعمال المنفذة (belt-and-suspenders, already done in preprocess)
+            # % sign for نسبة الاعمال المنفذة (belt-and-suspenders)
             if _is_percentage_col(col_str) and sval and not sval.strip().endswith("%"):
                 sval = f"{sval}%"
 
             if sval.startswith(("http://", "https://")) or ("رابط" in col_str and sval):
                 html = f'<link href="{sval}">{_shape("فتح الرابط")}</link>'
                 cells.append(Paragraph(html, link_style))
+            elif looks_arabic(sval) or not sval.strip():
+                # Arabic text or empty — use Arabic font, right-aligned
+                cells.append(Paragraph(_shape(sval), cell_rtl))
             else:
-                shaped = _shape(sval)
-                # Always use RTL/right-align style for consistency in RTL tables.
-                # English values (bank names etc.) are centered via cell_ltr but
-                # right-align ensures they are visible and consistent.
-                style = cell_rtl if (looks_arabic(sval) or not sval.strip()) else cell_ltr
-                cells.append(Paragraph(shaped, style))
+                # Pure English / numbers / mixed Latin — use Helvetica so glyphs render
+                cells.append(Paragraph(sval, cell_ltr))
         rows.append(cells)
 
     # Column widths
