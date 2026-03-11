@@ -632,7 +632,12 @@ def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[s
     return out
 
 def compose_pdf_title(company: str, project: str, data_type: str, dfrom, dto) -> str:
-    return _compose_title(company, project, data_type, dfrom, dto)
+    # Ensure project name is Arabic if available
+    if hasattr(project, 'arabic_name'):
+        project_name = project.arabic_name
+    else:
+        project_name = project
+    return _compose_title(company, project_name, data_type, dfrom, dto)
 
 def _shape(text: str) -> str:
     """Shape + bidi any string that may contain Arabic."""
@@ -720,6 +725,11 @@ def _pdf_table(
             raw = r[c]
             sval = "" if pd.isna(raw) else str(raw)
             col_str = str(c)
+
+            # Add % sign for نسبة الاعمال المنفذة
+            if "نسبة الاعمال المنفذة" in col_str and sval:
+                if not sval.strip().endswith("%"):
+                    sval = f"{sval}%"
 
             if sval.startswith(("http://", "https://")) or ("رابط" in col_str and sval):
                 html = f'<link href="{sval}">{_shape("فتح الرابط")}</link>'
