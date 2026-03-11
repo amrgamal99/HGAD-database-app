@@ -655,47 +655,41 @@ def _create_zip_from_links(df: pd.DataFrame, link_col: str) -> Tuple[Optional[by
 def _normalize_name(s: str) -> str:
     return re.sub(r'[\s\u0640\u200c\u200d\u200e\u200f]+', '', str(s or ''))
 
-def _plain_number_no_commas(x) -> str:
-    if pd.isna(x): return ""
+def _fmt_integer(x) -> str:
+    """Format any numeric value as integer with comma thousands separator.
+    e.g. 1074373.00 → 1,074,373   |   0 → ""   |   None/NaN → ""
+    """
+    if x is None: return ""
+    try:
+        if pd.isna(x): return ""
+    except Exception:
+        pass
     sx = str(x).replace(",", "").strip()
+    if not sx or sx.lower() in ("nan", "none", ""): return ""
     try:
         f = float(sx)
-        if float(int(f)) == f: return str(int(f))
-        s = f"{f}"
-        if "." in s: s = s.rstrip("0").rstrip(".")
-        return s
+        if f == 0: return ""
+        return f"{int(round(f)):,}"
     except Exception:
-        return str(x)
+        return sx
 
 def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[str]] = None) -> pd.DataFrame:
-    """Format numbers in a DataFrame for display; also applies PDF pre-processing."""
-    # First apply PDF-specific fixes (dates → string, percentage → add %)
-    # This must happen BEFORE numeric formatting so date columns stored as
-    # integers (e.g. 20250305) are converted to strings first and never
-    # reach the numeric formatter below.
+    """Format numbers in a DataFrame for display; also applies PDF pre-processing.
+    Rules:
+      - Date columns       → YYYY/MM/DD  (handled by _preprocess_df_for_pdf)
+      - نسبة الاعمال المنفذة → kept as-is with % appended
+      - ALL other numeric  → integer with comma thousands (e.g. 1,074,373)
+                             zero / null → empty string
+    """
+    # Must happen BEFORE numeric formatting so date integers are already strings
     out = _preprocess_df_for_pdf(df.copy())
 
-    requested = {_normalize_name(c) for c in (no_comma_cols or [])}
     for c in out.columns:
-        c_norm = _normalize_name(c)
-        # Skip columns already processed as dates or percentages
+        # Skip columns already handled
         if _is_date_col(c) or _is_percentage_col(c):
             continue
-        force_plain = (c_norm in requested) or ("شيك" in c_norm)
-        if force_plain:
-            out[c] = out[c].map(_plain_number_no_commas)
-            continue
-        # Use out[c] (already preprocessed) — check if values look numeric
-        def _fmt_cell(v):
-            s = str(v) if pd.notna(v) else ""
-            if not s or s.lower() in ("nan", "none"): return ""
-            try:
-                if s.strip().endswith("%"): return s
-                fv = float(s.replace(",", ""))
-                return f"{fv:,.2f}"
-            except Exception:
-                return s
-        out[c] = out[c].map(_fmt_cell)
+        # Format every other column: try to parse as number → integer display
+        out[c] = out[c].map(_fmt_integer)
     return out
 
 def compose_pdf_title(company: str, project: str, data_type: str, dfrom, dto) -> str:
