@@ -61,8 +61,6 @@ WIDE_LOGO_CANDIDATES = [
     ASSETS_DIR / "logo_wide.webp",
 ]
 
-# ── Arabic font candidates (order = preference) ───────────────────────────────
-# We try several known locations; if none found we download Amiri from GitHub.
 AR_FONT_CANDIDATES = [
     ASSETS_DIR / "Cairo-Regular.ttf",
     ASSETS_DIR / "Amiri-Regular.ttf",
@@ -72,17 +70,111 @@ AR_FONT_CANDIDATES = [
 
 _AR_RE = re.compile(r"[\u0600-\u06FF]")
 
-# ── Auto-download an Arabic font if nothing is available ──────────────────────
-_AMIRI_URL  = "https://github.com/aliftype/amiri/raw/main/Amiri-Regular.ttf"
-_NOTO_URL   = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoNaskhArabic/NotoNaskhArabic-Regular.ttf"
+_AMIRI_URL = "https://github.com/aliftype/amiri/raw/main/Amiri-Regular.ttf"
+_NOTO_URL  = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoNaskhArabic/NotoNaskhArabic-Regular.ttf"
 
+# ── Arabic bank name mapping ──────────────────────────────────────────────────
+BANK_NAME_AR: Dict[str, str] = {
+    # Common English → Arabic bank names; extend as needed
+    "national_bank":           "البنك الأهلي المصري",
+    "national bank":           "البنك الأهلي المصري",
+    "ahly":                    "البنك الأهلي المصري",
+    "nbe":                     "البنك الأهلي المصري",
+    "banque_misr":             "بنك مصر",
+    "banque misr":             "بنك مصر",
+    "misr":                    "بنك مصر",
+    "cib":                     "البنك التجاري الدولي",
+    "commercial_international": "البنك التجاري الدولي",
+    "commercial international": "البنك التجاري الدولي",
+    "qnb":                     "بنك قطر الوطني",
+    "qatar_national":          "بنك قطر الوطني",
+    "hsbc":                    "بنك HSBC مصر",
+    "arab_african":            "البنك العربي الأفريقي",
+    "arab african":            "البنك العربي الأفريقي",
+    "aaib":                    "البنك العربي الأفريقي",
+    "cairo":                   "بنك القاهرة",
+    "bank_of_cairo":           "بنك القاهرة",
+    "bank of cairo":           "بنك القاهرة",
+    "alex":                    "بنك الإسكندرية",
+    "bank_of_alexandria":      "بنك الإسكندرية",
+    "bank of alexandria":      "بنك الإسكندرية",
+    "faisal":                  "بنك فيصل الإسلامي",
+    "faisal_islamic":          "بنك فيصل الإسلامي",
+    "faisal islamic":          "بنك فيصل الإسلامي",
+    "arab_bank":               "البنك العربي",
+    "arab bank":               "البنك العربي",
+    "audi":                    "بنك عودة",
+    "blom":                    "بنك بلوم",
+    "suez_canal":              "بنك قناة السويس",
+    "suez canal":              "بنك قناة السويس",
+    "scb":                     "بنك قناة السويس",
+    "credit_agricole":         "كريدي أجريكول مصر",
+    "credit agricole":         "كريدي أجريكول مصر",
+    "societe_generale":        "سوسيتيه جنرال",
+    "societe generale":        "سوسيتيه جنرال",
+    "ube":                     "البنك المصري المتحد",
+    "united_bank":             "البنك المصري المتحد",
+    "united bank":             "البنك المصري المتحد",
+    "al_ahli":                 "البنك الأهلي",
+    "al ahli":                 "البنك الأهلي",
+    "mashreq":                 "بنك المشرق",
+    "emirates":                "بنك الإمارات",
+    "enbd":                    "بنك الإمارات دبي الوطني",
+    "transfer":                "تحويل بنكي",
+    "bank_transfer":           "تحويل بنكي",
+    "bank transfer":           "تحويل بنكي",
+}
+
+def _translate_bank(val: str) -> str:
+    """Return Arabic bank name if we know the English key, else return as-is."""
+    if not val or looks_arabic(val):
+        return val
+    key = val.strip().lower().replace("-", "_")
+    # exact match
+    if key in BANK_NAME_AR:
+        return BANK_NAME_AR[key]
+    # partial match
+    for eng, ar in BANK_NAME_AR.items():
+        if eng in key or key in eng:
+            return ar
+    # Remove underscores and return
+    return val.replace("_", " ")
+
+
+def _clean_underscores(val: str) -> str:
+    """Replace underscores with spaces in any string value."""
+    return str(val).replace("_", " ")
+
+
+def _format_date_arabic(val) -> str:
+    """
+    Convert various date representations to a clean Arabic-friendly
+    date string: YYYY/MM/DD  (or DD/MM/YYYY — change fmt below).
+    Returns original string if conversion fails.
+    """
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return ""
+    sval = str(val).strip()
+    if not sval or sval.lower() in ("nan", "none", "nat"):
+        return ""
+    try:
+        dt = pd.to_datetime(sval, dayfirst=False, errors="coerce")
+        if pd.isna(dt):
+            dt = pd.to_datetime(sval, dayfirst=True, errors="coerce")
+        if pd.notna(dt):
+            return dt.strftime("%Y/%m/%d")   # ← change to "%d/%m/%Y" if preferred
+    except Exception:
+        pass
+    return sval
+
+
+# =========================================================
+# Small utils
+# =========================================================
 def _ensure_arabic_font() -> Optional[Path]:
-    """Return path to a working Arabic TTF, downloading one if needed."""
     for p in AR_FONT_CANDIDATES:
         if Path(p).exists() and Path(p).stat().st_size > 10_000:
             return Path(p)
-
-    # Try to download into ASSETS_DIR
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     for url, fname in [(_AMIRI_URL, "Amiri-Regular.ttf"), (_NOTO_URL, "NotoNaskhArabic-Regular.ttf")]:
         dest = ASSETS_DIR / fname
@@ -96,9 +188,6 @@ def _ensure_arabic_font() -> Optional[Path]:
     return None
 
 
-# =========================================================
-# Small utils
-# =========================================================
 def _first_existing(paths) -> Optional[Path]:
     for p in paths:
         pth = Path(p)
@@ -122,20 +211,16 @@ def _wide_logo_path() -> Optional[Path]:
     return _first_existing(WIDE_LOGO_CANDIDATES)
 
 
-# ── Font registration (cached so we only do it once) ─────────────────────────
 @st.cache_resource
 def register_arabic_font() -> Tuple[str, bool]:
-    """Register the best available Arabic font with ReportLab. Returns (font_name, ok)."""
     font_path = _ensure_arabic_font()
     if font_path:
-        name = font_path.stem  # e.g. "Amiri-Regular"
+        name = font_path.stem
         try:
             pdfmetrics.registerFont(TTFont(name, str(font_path)))
             return name, True
         except Exception:
             pass
-
-    # Last resort: DejaVuSans (partial Arabic coverage)
     for fallback_path in [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/TTF/DejaVuSans.ttf",
@@ -146,7 +231,6 @@ def register_arabic_font() -> Tuple[str, bool]:
                 return "DejaVuSans", False
             except Exception:
                 pass
-
     return "Helvetica", False
 
 
@@ -154,7 +238,6 @@ def looks_arabic(s: str) -> bool:
     return bool(_AR_RE.search(str(s or "")))
 
 def shape_arabic(s: str) -> str:
-    """Reshape + bidi Arabic text for ReportLab."""
     try:
         return get_display(arabic_reshaper.reshape(str(s)))
     except Exception:
@@ -170,12 +253,12 @@ def _safe_filename(s: str) -> str:
 
 
 # =========================================================
-# Streamlit Config + CSS  (sidebar NOW collapsible)
+# Streamlit Config + CSS
 # =========================================================
 st.set_page_config(
     page_title="قاعدة البيانات والتقارير المالية | HGAD",
     layout="wide",
-    initial_sidebar_state="expanded",   # starts open but user can collapse
+    initial_sidebar_state="expanded",
 )
 
 st.markdown(
@@ -192,7 +275,6 @@ html, body{
   color:var(--text) !important; background:var(--bg) !important;
 }
 
-/* ── Sidebar: fully hidden when collapsed, mobile friendly ── */
 [data-testid="stSidebar"]{
   background: linear-gradient(180deg, #0b1220, #0a1020) !important;
   border-inline-start: 1px solid var(--line) !important;
@@ -200,7 +282,6 @@ html, body{
   transition: all 0.3s ease !important;
 }
 
-/* When collapsed: slide completely off-screen & hide */
 [data-testid="stSidebar"][aria-expanded="false"]{
   min-width: 0px !important;
   width: 0px !important;
@@ -208,7 +289,6 @@ html, body{
   border: none !important;
 }
 
-/* Collapse/expand toggle button — always visible, floats on edge */
 [data-testid="stSidebarCollapseButton"]{
   display: flex !important;
   position: fixed !important;
@@ -232,7 +312,6 @@ html, body{
   color: white !important;
 }
 
-/* On mobile: sidebar overlays content instead of pushing it */
 @media (max-width: 768px) {
   [data-testid="stSidebar"][aria-expanded="true"]{
     position: fixed !important;
@@ -326,6 +405,55 @@ with c_title:
     )
 st.markdown('<hr class="hr-accent"/>', unsafe_allow_html=True)
 
+
+# =========================================================
+# PDF pre-processing helpers
+# =========================================================
+_DATE_KEYWORDS  = ["تاريخ", "date", "تعاقد", "إصدار", "اصدار"]
+_BANK_KEYWORDS  = ["بنك", "bank", "البنك"]
+
+def _is_date_col(col_name: str) -> bool:
+    cn = str(col_name).lower()
+    return any(k in cn for k in _DATE_KEYWORDS)
+
+def _is_bank_col(col_name: str) -> bool:
+    cn = str(col_name).lower()
+    return any(k in cn for k in _BANK_KEYWORDS)
+
+def _is_percentage_col(col_name: str) -> bool:
+    return "نسبة الاعمال المنفذة" in str(col_name)
+
+def _preprocess_df_for_pdf(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Apply all PDF-specific fixes to a dataframe before rendering:
+      1. Date columns → YYYY/MM/DD string
+      2. Bank columns → Arabic bank name (no underscores)
+      3. All string values → remove underscores
+      4. نسبة الاعمال المنفذة → append % if missing
+    """
+    out = df.copy()
+    for col in out.columns:
+        if _is_date_col(col):
+            out[col] = out[col].map(_format_date_arabic)
+        elif _is_bank_col(col):
+            out[col] = out[col].map(
+                lambda v: _translate_bank(_clean_underscores(str(v))) if pd.notna(v) and str(v).strip() not in ("", "nan") else ""
+            )
+        elif _is_percentage_col(col):
+            def _add_pct(v):
+                s = str(v) if pd.notna(v) else ""
+                if not s or s.lower() in ("nan", "none"): return ""
+                return s if s.strip().endswith("%") else f"{s}%"
+            out[col] = out[col].map(_add_pct)
+        else:
+            # Remove underscores from all other string-like columns
+            if out[col].dtype == object:
+                out[col] = out[col].map(
+                    lambda v: _clean_underscores(str(v)) if pd.notna(v) and str(v).strip() not in ("nan",) else (str(v) if pd.notna(v) else "")
+                )
+    return out
+
+
 # =========================================================
 # Excel helpers
 # =========================================================
@@ -355,7 +483,9 @@ def _compose_title(company: str, project: str, data_type: str, dfrom, dto) -> st
     if project:   parts.append(f"المشروع: {project}")
     if data_type: parts.append(f"النوع: {data_type}")
     if dfrom or dto:
-        parts.append(f"الفترة: {dfrom or '—'} ← {dto or '—'}")
+        d_from_str = _format_date_arabic(dfrom) if dfrom else "—"
+        d_to_str   = _format_date_arabic(dto)   if dto   else "—"
+        parts.append(f"الفترة: {d_from_str} ← {d_to_str}")
     return " | ".join(parts)
 
 def _insert_wide_logo(ws, df: pd.DataFrame, start_row: int, start_col: int = 0) -> int:
@@ -591,7 +721,7 @@ def _create_zip_from_links(df: pd.DataFrame, link_col: str) -> Tuple[Optional[by
 
 
 # =========================================================
-# PDF helpers  ── FIXED Arabic rendering
+# PDF helpers
 # =========================================================
 def _normalize_name(s: str) -> str:
     return re.sub(r'[\s\u0640\u200c\u200d\u200e\u200f]+', '', str(s or ''))
@@ -609,19 +739,26 @@ def _plain_number_no_commas(x) -> str:
         return str(x)
 
 def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[str]] = None) -> pd.DataFrame:
-    out = df.copy()
+    """Format numbers in a DataFrame for display; also applies PDF pre-processing."""
+    # First apply PDF-specific fixes (dates, bank names, underscores, percentage)
+    out = _preprocess_df_for_pdf(df.copy())
+
     requested = {_normalize_name(c) for c in (no_comma_cols or [])}
     for c in out.columns:
         c_norm = _normalize_name(c)
+        # Skip columns already processed as dates, banks, percentages
+        if _is_date_col(c) or _is_bank_col(c) or _is_percentage_col(c):
+            continue
         force_plain = (c_norm in requested) or ("شيك" in c_norm)
         if force_plain:
             out[c] = out[c].map(_plain_number_no_commas)
             continue
-        if pd.api.types.is_numeric_dtype(out[c]):
-            out[c] = out[c].map(lambda x: "" if pd.isna(x) else f"{float(x):,.2f}")
+        if pd.api.types.is_numeric_dtype(df[c]):   # use original df dtype
+            out[c] = out[c].map(lambda x: "" if pd.isna(x) else f"{float(x):,.2f}" if str(x).replace('.','',1).replace('-','',1).isdigit() else str(x))
         else:
             def _fmt_cell(v):
                 s = str(v)
+                if not s or s.lower() in ("nan", "none"): return ""
                 try:
                     if s.strip().endswith("%"): return s
                     fv = float(s.replace(",", ""))
@@ -632,18 +769,17 @@ def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[s
     return out
 
 def compose_pdf_title(company: str, project: str, data_type: str, dfrom, dto) -> str:
-    # Ensure project name is Arabic if available
-    if hasattr(project, 'arabic_name'):
-        project_name = project.arabic_name
-    else:
-        project_name = project
-    return _compose_title(company, project_name, data_type, dfrom, dto)
+    return _compose_title(company, project, data_type, dfrom, dto)
 
 def _shape(text: str) -> str:
-    """Shape + bidi any string that may contain Arabic."""
-    if looks_arabic(str(text)):
-        return shape_arabic(str(text))
-    return str(text)
+    """Shape + bidi any string — always apply for best Arabic rendering."""
+    s = str(text) if text is not None else ""
+    if not s or s.lower() in ("nan", "none"):
+        return ""
+    # Always reshape; it's safe for Latin text too with good Arabic fonts
+    if looks_arabic(s):
+        return shape_arabic(s)
+    return s
 
 def _pdf_header_elements(title_line: str) -> Tuple[List, float]:
     font_name, arabic_ok = register_arabic_font()
@@ -714,33 +850,33 @@ def _pdf_table(
         )
         blocks += [Paragraph(_shape(title), tstyle), Spacer(1, 4)]
 
-    # ── Headers (always shaped) ──────────────────────────────────────────────
+    # Headers
     headers = [Paragraph(_shape(str(c)), hdr_style) for c in df.columns]
     rows = [headers]
 
-    # ── Body rows ────────────────────────────────────────────────────────────
+    # Body rows
     for _, r in df.iterrows():
         cells = []
         for c in df.columns:
             raw = r[c]
-            sval = "" if pd.isna(raw) else str(raw)
+            # After _preprocess_df_for_pdf all values are already strings
+            sval = "" if (raw is None or (isinstance(raw, float) and pd.isna(raw))) else str(raw)
             col_str = str(c)
 
-            # Add % sign for نسبة الاعمال المنفذة
-            if "نسبة الاعمال المنفذة" in col_str and sval:
-                if not sval.strip().endswith("%"):
-                    sval = f"{sval}%"
+            # % sign for نسبة الاعمال المنفذة (belt-and-suspenders, already done in preprocess)
+            if _is_percentage_col(col_str) and sval and not sval.strip().endswith("%"):
+                sval = f"{sval}%"
 
             if sval.startswith(("http://", "https://")) or ("رابط" in col_str and sval):
                 html = f'<link href="{sval}">{_shape("فتح الرابط")}</link>'
                 cells.append(Paragraph(html, link_style))
             else:
-                shaped = _shape(sval)          # reshape regardless of pure-Arabic check
+                shaped = _shape(sval)
                 style  = cell_rtl if looks_arabic(sval) else cell_ltr
                 cells.append(Paragraph(shaped, style))
         rows.append(cells)
 
-    # ── Column widths ────────────────────────────────────────────────────────
+    # Column widths
     col_widths = []
     for c in df.columns:
         max_len = max(len(str(c)), df[c].astype(str).map(len).max())
@@ -875,11 +1011,9 @@ def main() -> None:
         project_name = create_project_dropdown(conn, company_name)
         type_label, type_key = create_type_dropdown()
 
-        # Search button that auto-collapses the sidebar
         st.markdown("---")
         search_clicked = st.button("🔍 بحث", key="sidebar_search_btn", use_container_width=True)
 
-        # Use components.html to reliably execute JS (st.markdown scripts are stripped)
         import streamlit.components.v1 as components
         if search_clicked:
             components.html(
@@ -887,13 +1021,10 @@ def main() -> None:
                 <script>
                 (function() {
                     function collapse() {
-                        // walk up from iframe to parent window
                         var w = window.parent;
                         var sidebar = w.document.querySelector('[data-testid="stSidebar"]');
                         if (!sidebar) return;
-                        // already collapsed
                         if (sidebar.getAttribute('aria-expanded') === 'false') return;
-                        // find the collapse button in parent document
                         var btn = w.document.querySelector('[data-testid="stSidebarCollapseButton"] button');
                         if (!btn) {
                             var wrap = w.document.querySelector('[data-testid="stSidebarCollapseButton"]');
@@ -901,7 +1032,6 @@ def main() -> None:
                         }
                         if (btn) { btn.click(); }
                     }
-                    // slight delay to let Streamlit re-render first
                     setTimeout(collapse, 200);
                 })();
                 </script>
@@ -941,7 +1071,7 @@ def main() -> None:
                     &nbsp;&nbsp;|&nbsp;&nbsp;
                     <strong>المشروع:</strong> {project_name or '—'}
                     &nbsp;&nbsp;|&nbsp;&nbsp;
-                    <strong>تاريخ التعاقد:</strong> {str(row.get("تاريخ التعاقد", "—"))}
+                    <strong>تاريخ التعاقد:</strong> {_format_date_arabic(row.get("تاريخ التعاقد", "—"))}
                 </div>
                 <span class="badge">تقرير مالي</span>
             </div>
@@ -986,7 +1116,6 @@ def main() -> None:
 
         df_flow_display = df_flow.drop(columns=["companyid", "contractid", "delta"], errors="ignore")
 
-        # Build column config: make ALL رابط columns clickable links
         flow_col_config = {}
         for col in df_flow_display.columns:
             if "رابط" in str(col):
@@ -1017,7 +1146,6 @@ def main() -> None:
 
         link_cols = [c for c in df_flow_display.columns if "رابط" in str(c)]
         if link_cols:
-            # Offer a separate ZIP button for each link column
             for lc in link_cols:
                 btn_label = (
                     "⬇️ تنزيل كل المستخلصات (ZIP)" if "مستخلص" in str(lc)
