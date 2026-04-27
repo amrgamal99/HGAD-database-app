@@ -915,7 +915,7 @@ def fin_panel_two_tables(left_items: List[Tuple[str, str]], right_items: List[Tu
 
 def _apply_date_filter(df: pd.DataFrame, dfrom, dto) -> pd.DataFrame:
     if df is None or df.empty or (not dfrom and not dto): return df
-    date_cols = [c for c in df.columns if any(k in str(c) for k in ["تاريخ", "إصدار", "date", "تعاقد"])]
+    date_cols = [c for c in df.columns if any(k in str(c) for k in ["تاريخ", "إصدار", "date", " التعاقد"])]
     if not date_cols: return df
     out = df.copy()
     for col in date_cols:
