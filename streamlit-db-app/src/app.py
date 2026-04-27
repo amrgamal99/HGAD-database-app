@@ -445,6 +445,39 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
     fmt_num  = workbook.add_format({"align": "right", "num_format": "#,##0.00"})
     fmt_link = workbook.add_format({"font_color": "blue", "underline": 1, "align": "right"})
 
+    # ✅ صفوف المجموع وعدد الصفوف — أحمر + عريض
+    fmt_sum_label = workbook.add_format({
+        "align": "right", "bold": True,
+        "font_color": "#FFFFFF", "bg_color": "#C00000",
+        "border": 1, "border_color": "#A00000"
+    })
+    fmt_sum_num = workbook.add_format({
+        "align": "right", "bold": True,
+        "font_color": "#FFFFFF", "bg_color": "#C00000",
+        "num_format": "#,##0.00",
+        "border": 1, "border_color": "#A00000"
+    })
+    fmt_sum_empty = workbook.add_format({
+        "align": "right",
+        "bg_color": "#C00000",
+        "border": 1, "border_color": "#A00000"
+    })
+    fmt_count_label = workbook.add_format({
+        "align": "right", "bold": True,
+        "font_color": "#FFFFFF", "bg_color": "#9B1C1C",
+        "border": 1, "border_color": "#7F1D1D"
+    })
+    fmt_count_val = workbook.add_format({
+        "align": "right", "bold": True,
+        "font_color": "#FFFFFF", "bg_color": "#9B1C1C",
+        "border": 1, "border_color": "#7F1D1D"
+    })
+    fmt_count_empty = workbook.add_format({
+        "align": "right",
+        "bg_color": "#9B1C1C",
+        "border": 1, "border_color": "#7F1D1D"
+    })
+
     r0, c0 = start_row, start_col
 
     for j, col in enumerate(df.columns):
@@ -468,8 +501,10 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
 
     exclude_keywords = ['id', 'رقم', 'تاريخ', 'date', 'code', 'كود', 'بنك', 'bank', 'نوع', 'type']
     sum_row_idx = r0 + 1 + len(df)
+
+    # ✅ صف المجموع — أحمر
     if len(df.columns) > 0:
-        ws.write(sum_row_idx, c0, "المجموع", hdr_fmt)
+        ws.write(sum_row_idx, c0, "المجموع", fmt_sum_label)
     for j, col in enumerate(df.columns):
         if j == 0: continue
         col_lower = str(col).lower()
@@ -479,23 +514,24 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
                 if not numeric_col.isna().all():
                     s = numeric_col.sum()
                     if not pd.isna(s) and abs(s) > 0.001:
-                        ws.write(sum_row_idx, c0 + j, s, fmt_num)
+                        ws.write(sum_row_idx, c0 + j, s, fmt_sum_num)
                     else:
-                        ws.write(sum_row_idx, c0 + j, "", fmt_text)
+                        ws.write(sum_row_idx, c0 + j, "", fmt_sum_empty)
                 else:
-                    ws.write(sum_row_idx, c0 + j, "", fmt_text)
+                    ws.write(sum_row_idx, c0 + j, "", fmt_sum_empty)
             except Exception:
-                ws.write(sum_row_idx, c0 + j, "", fmt_text)
+                ws.write(sum_row_idx, c0 + j, "", fmt_sum_empty)
         else:
-            ws.write(sum_row_idx, c0 + j, "", fmt_text)
+            ws.write(sum_row_idx, c0 + j, "", fmt_sum_empty)
 
+    # ✅ صف عدد الصفوف — أحمر داكن
     count_row_idx = sum_row_idx + 1
     if len(df.columns) > 0:
-        ws.write(count_row_idx, c0, "عدد الصفوف", hdr_fmt)
+        ws.write(count_row_idx, c0, "عدد الصفوف", fmt_count_label)
     if len(df.columns) > 1:
-        ws.write(count_row_idx, c0 + 1, len(df), fmt_text)
+        ws.write(count_row_idx, c0 + 1, len(df), fmt_count_val)
         for j in range(2, len(df.columns)):
-            ws.write(count_row_idx, c0 + j, "", fmt_text)
+            ws.write(count_row_idx, c0 + j, "", fmt_count_empty)
 
     r1 = count_row_idx
     c1 = c0 + len(df.columns) - 1
