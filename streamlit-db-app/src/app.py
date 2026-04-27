@@ -354,7 +354,7 @@ st.markdown('<hr class="hr-accent"/>', unsafe_allow_html=True)
 # =========================================================
 # PDF pre-processing helpers
 # =========================================================
-_DATE_KEYWORDS = ["تاريخ", "date", "تعاقد", "إصدار", "اصدار"]
+_DATE_KEYWORDS = ["تاريخ", "date", " التعاقد", "إصدار", "اصدار"]
 
 def _is_date_col(col_name: str) -> bool:
     cn = str(col_name).lower()
