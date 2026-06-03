@@ -6,20 +6,24 @@ from db.connection import fetch_companies, fetch_projects_by_company
 def create_factory_dropdown() -> Optional[str]:
     display_to_factory = {
         "الكل": None,
-        "التجمع": "لتجمع",
+        "التجمع": "التجمع",
         "بدر": "بد",
     }
     display_choice = st.selectbox(
         "اسم المصنع",
         options=list(display_to_factory.keys()),
-        index=0,
-        help="اختر المصنع أو اترك الكل لعرض جميع الشركات",
+        index=0,        key="factory_select",        help="اختر المصنع أو اترك الكل لعرض جميع الشركات",
     )
     return display_to_factory.get(display_choice)
 
 
 def create_company_dropdown(conn, factory_name: Optional[str] = None):
     companies_df = fetch_companies(conn, factory_name=factory_name)
+    if companies_df.empty or "اسم الشركة" not in companies_df.columns:
+        message = "لا توجد شركات مطابقة للمصنع المحدد." if factory_name else "لا توجد شركات." 
+        st.info(message)
+        return None
+
     companies = (
         companies_df["اسم الشركة"]
         .dropna()
@@ -40,7 +44,7 @@ def create_company_dropdown(conn, factory_name: Optional[str] = None):
         st.info(f"لا توجد شركات تبدأ بـ «{query}»") if query else st.info("لا توجد شركات.")
         return None
 
-    return st.selectbox("اختر الشركة", options=filtered, index=0 if filtered else None, placeholder="— اختر —")
+    return st.selectbox("اختر الشركة", options=filtered, index=0 if filtered else None, key="company_select")
 
 def create_project_dropdown(conn, company_name: str):
     if not company_name:
