@@ -1,9 +1,25 @@
 import streamlit as st
 import pandas as pd
+from typing import Optional
 from db.connection import fetch_companies, fetch_projects_by_company
 
-def create_company_dropdown(conn):
-    companies_df = fetch_companies(conn)
+def create_factory_dropdown() -> Optional[str]:
+    display_to_factory = {
+        "الكل": None,
+        "التجمع": "لتجمع",
+        "بدر": "بد",
+    }
+    display_choice = st.selectbox(
+        "اسم المصنع",
+        options=list(display_to_factory.keys()),
+        index=0,
+        help="اختر المصنع أو اترك الكل لعرض جميع الشركات",
+    )
+    return display_to_factory.get(display_choice)
+
+
+def create_company_dropdown(conn, factory_name: Optional[str] = None):
+    companies_df = fetch_companies(conn, factory_name=factory_name)
     companies = (
         companies_df["اسم الشركة"]
         .dropna()

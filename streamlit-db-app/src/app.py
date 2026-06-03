@@ -41,6 +41,7 @@ from db.connection import (
     fetch_contract_summary_view,
 )
 from components.filters import (
+    create_factory_dropdown,
     create_company_dropdown,
     create_project_dropdown,
     create_type_dropdown,
@@ -1030,7 +1031,8 @@ def main() -> None:
 
     with st.sidebar:
         st.title("عوامل التصفية")
-        company_name = create_company_dropdown(conn)
+        factory_name = create_factory_dropdown()
+        company_name = create_company_dropdown(conn, factory_name=factory_name)
         project_name = create_project_dropdown(conn, company_name)
         type_label, type_key = create_type_dropdown()
 

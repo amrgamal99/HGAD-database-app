@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
+from typing import Optional
 import re
 
 # تهيئة عميل Supabase مرة واحدة
@@ -16,9 +17,12 @@ def get_db_connection() -> Client | None:
         return None
 
 # الشركات
-def fetch_companies(supabase: Client) -> pd.DataFrame:
+def fetch_companies(supabase: Client, factory_name: Optional[str] = None) -> pd.DataFrame:
     try:
-        resp = supabase.table("company").select("companyname").execute()
+        query = supabase.table("company").select("companyname")
+        if factory_name and factory_name != "الكل":
+            query = query.eq("factoryname", factory_name)
+        resp = query.execute()
         df = pd.DataFrame(resp.data or [])
         df = df.rename(columns={"companyname": "اسم الشركة"})
         if not df.empty:
