@@ -75,13 +75,8 @@ _NOTO_URL  = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/Noto
 
 
 def _format_date_arabic(val) -> str:
-    """
-    Convert various date representations to a clean date string: YYYY/MM/DD.
-    Handles: datetime objects, YYYYMMDD integers/strings, ISO strings, and common formats.
-    """
     if val is None:
         return ""
-    # Handle pandas/numpy NaT and NaN
     try:
         if pd.isna(val):
             return ""
@@ -90,10 +85,8 @@ def _format_date_arabic(val) -> str:
     sval = str(val).strip()
     if not sval or sval.lower() in ("nan", "none", "nat", ""):
         return ""
-    # Remove decimal part if stored as float e.g. "20250305.0"
     if re.match(r"^\d{8}\.0$", sval):
         sval = sval.split(".")[0]
-    # Handle compact YYYYMMDD format (e.g. "20250305")
     if re.match(r"^\d{8}$", sval):
         try:
             from datetime import datetime
@@ -101,7 +94,6 @@ def _format_date_arabic(val) -> str:
             return dt.strftime("%Y/%m/%d")
         except Exception:
             pass
-    # Try pandas parsing
     try:
         dt = pd.to_datetime(sval, dayfirst=False, errors="coerce")
         if pd.isna(dt):
@@ -318,6 +310,83 @@ html, body{
   text-align: right !important;
   direction: rtl !important;
 }
+
+/* ── UI Summary Panel ── */
+.summary-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  direction: rtl;
+  margin: 14px 0 6px;
+}
+.summary-card {
+  flex: 1 1 160px;
+  min-width: 140px;
+  background: linear-gradient(135deg, #0d1e38 0%, #0f2040 100%);
+  border: 1px solid #1e3560;
+  border-radius: 14px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  position: relative;
+  overflow: hidden;
+}
+.summary-card::before {
+  content: "";
+  position: absolute;
+  top: 0; right: 0;
+  width: 4px; height: 100%;
+  background: var(--card-accent, #2563eb);
+  border-radius: 0 14px 14px 0;
+}
+.summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+}
+.summary-card .sc-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #7a9ac8;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.summary-card .sc-value {
+  font-size: 20px;
+  font-weight: 900;
+  color: #e7eefc;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.summary-card .sc-sub {
+  font-size: 11px;
+  color: #4a6a9a;
+  font-weight: 600;
+}
+.summary-card.count-card {
+  --card-accent: #16a34a;
+  background: linear-gradient(135deg, #0a1f14 0%, #0d2318 100%);
+  border-color: #144d2a;
+  flex: 0 0 auto;
+  min-width: 180px;
+}
+.summary-card.count-card .sc-value {
+  color: #4ade80;
+}
+.summary-card.count-card .sc-label {
+  color: #5a9a78;
+}
+.summary-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #1e3a8a55, transparent);
+  margin: 4px 0 12px;
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -364,12 +433,6 @@ def _is_percentage_col(col_name: str) -> bool:
     return "نسبة الاعمال المنفذة" in str(col_name)
 
 def _preprocess_df_for_pdf(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Apply PDF-specific fixes to a dataframe before rendering:
-      1. Date columns → YYYY/MM/DD string
-      2. نسبة الاعمال المنفذة → append % if missing
-    All other values (bank names, project names, etc.) are shown exactly as stored in the database.
-    """
     out = df.copy()
     for col in out.columns:
         if _is_date_col(col):
@@ -384,7 +447,7 @@ def _preprocess_df_for_pdf(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # =========================================================
-# Excel helpers
+# Excel helpers  ← UNTOUCHED
 # =========================================================
 def _pick_excel_engine() -> Optional[str]:
     try:
@@ -692,9 +755,6 @@ def _normalize_name(s: str) -> str:
     return re.sub(r'[\s\u0640\u200c\u200d\u200e\u200f]+', '', str(s or ''))
 
 def _fmt_integer(x) -> str:
-    """Format any numeric value as integer with comma thousands separator.
-    e.g. 1074373.00 → 1,074,373   |   0 → ""   |   None/NaN → ""
-    """
     if x is None: return ""
     try:
         if pd.isna(x): return ""
@@ -710,7 +770,6 @@ def _fmt_integer(x) -> str:
         return sx
 
 def _fmt_integer_no_comma(x) -> str:
-    """Format numeric value as integer WITHOUT comma separator — for رقم الشيك."""
     if x is None: return ""
     try:
         if pd.isna(x): return ""
@@ -725,23 +784,12 @@ def _fmt_integer_no_comma(x) -> str:
     except Exception:
         return sx
 
-_NO_COMMA_COLS = {"رقمالشيك"}   # normalized names (spaces/tatweel stripped)
+_NO_COMMA_COLS = {"رقمالشيك"}
 
 def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[str]] = None) -> pd.DataFrame:
-    """Format numbers in a DataFrame for display; also applies PDF pre-processing.
-    Rules:
-      - Date columns          → YYYY/MM/DD
-      - نسبة الاعمال المنفذة  → kept as-is with % appended
-      - رقم الشيك             → integer WITHOUT commas (e.g. 63105438)
-      - ALL other numeric     → integer with comma thousands (e.g. 1,074,373)
-      - zero / null           → empty string
-    """
     out = _preprocess_df_for_pdf(df.copy())
-
-    # Build the set of no-comma column names (caller can extend via no_comma_cols)
     extra = {_normalize_name(c) for c in (no_comma_cols or [])}
     no_comma = _NO_COMMA_COLS | extra
-
     for c in out.columns:
         if _is_date_col(c) or _is_percentage_col(c):
             continue
@@ -755,17 +803,11 @@ def compose_pdf_title(company: str, project: str, data_type: str, dfrom, dto) ->
     return _compose_title(company, project, data_type, dfrom, dto)
 
 def _shape(text: str) -> str:
-    """Shape + bidi any string — always apply for best Arabic rendering.
-    For mixed content (e.g. English bank name, numbers), passes through as-is
-    but always applies Arabic reshaping when Arabic chars are present.
-    """
     s = str(text) if text is not None else ""
     if not s or s.lower() in ("nan", "none"):
         return ""
-    # If any Arabic chars present, reshape the whole string (handles mixed content too)
     if looks_arabic(s):
         return shape_arabic(s)
-    # Pure English/numbers — return unchanged, will render fine with Latin-capable font
     return s
 
 def _pdf_header_elements(title_line: str) -> Tuple[List, float]:
@@ -820,8 +862,6 @@ def _pdf_table(
         name="CellR", fontName=font_name, fontSize=font_size,
         leading=font_size + 1.5, alignment=2, textColor=colors.black
     )
-    # For pure English/numeric values: use Helvetica (always available, full Latin)
-    # so bank names, codes, numbers stored as English render correctly in the PDF.
     cell_ltr = ParagraphStyle(
         name="CellL", fontName="Helvetica", fontSize=font_size,
         leading=font_size + 1.5, alignment=1, textColor=colors.black
@@ -839,11 +879,9 @@ def _pdf_table(
         )
         blocks += [Paragraph(_shape(title), tstyle), Spacer(1, 4)]
 
-    # Headers
     headers = [Paragraph(_shape(str(c)), hdr_style) for c in df.columns]
     rows = [headers]
 
-    # Body rows
     for _, r in df.iterrows():
         cells = []
         for c in df.columns:
@@ -851,7 +889,6 @@ def _pdf_table(
             sval = "" if (raw is None or (isinstance(raw, float) and pd.isna(raw))) else str(raw)
             col_str = str(c)
 
-            # % sign for نسبة الاعمال المنفذة (belt-and-suspenders)
             if _is_percentage_col(col_str) and sval and not sval.strip().endswith("%"):
                 sval = f"{sval}%"
 
@@ -859,14 +896,11 @@ def _pdf_table(
                 html = f'<link href="{sval}">{_shape("فتح الرابط")}</link>'
                 cells.append(Paragraph(html, link_style))
             elif looks_arabic(sval) or not sval.strip():
-                # Arabic text or empty — use Arabic font, right-aligned
                 cells.append(Paragraph(_shape(sval), cell_rtl))
             else:
-                # Pure English / numbers / mixed Latin — use Helvetica so glyphs render
                 cells.append(Paragraph(sval, cell_ltr))
         rows.append(cells)
 
-    # Column widths
     col_widths = []
     for c in df.columns:
         max_len = max(len(str(c)), df[c].astype(str).map(len).max())
@@ -929,6 +963,95 @@ def make_pdf_combined(summary_df: pd.DataFrame, flow_df: pd.DataFrame, title_lin
     doc.build(elements)
     buf.seek(0)
     return buf.getvalue()
+
+
+# =========================================================
+# UI Summary Panel  ← NEW
+# =========================================================
+_EXCLUDE_SUM_KW = ['id', 'رقم', 'تاريخ', 'date', 'code', 'كود', 'بنك', 'bank', 'نوع', 'type']
+
+# Accent colours cycling for numeric summary cards
+_ACCENT_COLORS = [
+    "#2563eb",  # blue
+    "#7c3aed",  # violet
+    "#0891b2",  # cyan
+    "#d97706",  # amber
+    "#dc2626",  # red
+    "#059669",  # emerald
+    "#db2777",  # pink
+    "#ea580c",  # orange
+]
+
+def _build_ui_summary(df: pd.DataFrame, section_label: str = "") -> None:
+    """
+    Render a professional summary bar below a dataframe showing:
+    - One card per numeric column (excluding id/date/code-like cols) with its sum
+    - A green card at the end showing total row count
+    The layout uses the custom CSS classes defined in the page stylesheet.
+    """
+    if df is None or df.empty:
+        return
+
+    numeric_summaries: List[Tuple[str, float]] = []
+    for col in df.columns:
+        col_lower = str(col).lower()
+        if any(kw in col_lower for kw in _EXCLUDE_SUM_KW):
+            continue
+        try:
+            numeric_col = pd.to_numeric(df[col], errors="coerce")
+            if numeric_col.isna().all():
+                continue
+            total = numeric_col.sum()
+            if pd.isna(total) or abs(total) < 0.001:
+                continue
+            numeric_summaries.append((str(col), total))
+        except Exception:
+            continue
+
+    if not numeric_summaries and len(df) == 0:
+        return
+
+    # Build cards HTML
+    cards_html = []
+
+    for idx, (col_name, total) in enumerate(numeric_summaries):
+        accent = _ACCENT_COLORS[idx % len(_ACCENT_COLORS)]
+        # Format: integer with commas if large enough, else 2 decimal places
+        if abs(total) >= 1:
+            formatted = f"{int(round(total)):,}"
+        else:
+            formatted = f"{total:,.4f}"
+
+        cards_html.append(f"""
+        <div class="summary-card" style="--card-accent:{accent};">
+          <div class="sc-label">{col_name}</div>
+          <div class="sc-value">{formatted}</div>
+          <div class="sc-sub">المجموع الكلي</div>
+        </div>
+        """)
+
+    # Row count card (always shown)
+    row_count = len(df)
+    cards_html.append(f"""
+    <div class="summary-card count-card">
+      <div class="sc-label">إجمالي الصفوف</div>
+      <div class="sc-value">{row_count:,}</div>
+      <div class="sc-sub">عدد السجلات</div>
+    </div>
+    """)
+
+    label_html = (
+        f'<div style="font-size:13px;font-weight:800;color:#5a7aaa;margin-bottom:6px;direction:rtl;">'
+        f'📊 ملخص البيانات{f" — {section_label}" if section_label else ""}'
+        f'</div>'
+    )
+
+    st.markdown(
+        f'{label_html}'
+        f'<div class="summary-bar">{"".join(cards_html)}</div>'
+        f'<div class="summary-divider"></div>',
+        unsafe_allow_html=True,
+    )
 
 
 # =========================================================
@@ -1118,6 +1241,9 @@ def main() -> None:
         st.dataframe(df_flow_display, column_config=flow_col_config, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
+        # ── UI Summary for flow table ──
+        _build_ui_summary(df_flow_display, section_label="دفتر التدفق")
+
         xlsx_flow = make_excel_bytes(df_flow_display, sheet_name="دفتر_التدفق", title_line=title_flow, put_logo=True)
         if xlsx_flow:
             st.download_button("تنزيل الدفتر كـ Excel", xlsx_flow,
@@ -1210,6 +1336,9 @@ def main() -> None:
     st.markdown('<div class="card soft">', unsafe_allow_html=True)
     st.dataframe(df, column_config=column_config, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── UI Summary for generic data table ──
+    _build_ui_summary(df, section_label=type_label or "")
 
     title_generic = compose_pdf_title(company_name, project_name, type_label, g_date_from, g_date_to)
 
