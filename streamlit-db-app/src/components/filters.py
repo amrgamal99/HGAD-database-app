@@ -7,7 +7,7 @@ def create_factory_dropdown() -> Optional[str]:
     display_to_factory = {
         "الكل": None,
         "التجمع": "التجمع",
-        "بدر": "بد",
+        "بدر": "بدر",
     }
     display_choice = st.selectbox(
         "اسم المصنع",
