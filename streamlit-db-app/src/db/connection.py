@@ -24,11 +24,13 @@ def fetch_companies(supabase: Client, factory_name: Optional[str] = None) -> pd.
             query = query.eq("factoryname", factory_name)
         resp = query.execute()
         df = pd.DataFrame(resp.data or [])
+        if "companyname" not in df.columns:
+            df = pd.DataFrame(columns=["companyname"])
         df = df.rename(columns={"companyname": "اسم الشركة"})
+        if "اسم الشركة" not in df.columns:
+            df = pd.DataFrame(columns=["اسم الشركة"])
         if not df.empty:
             df = df.drop_duplicates().sort_values("اسم الشركة", key=lambda s: s.str.lower())
-        else:
-            df = df.drop_duplicates()
         return df
     except Exception:
         return pd.DataFrame(columns=["اسم الشركة"])
