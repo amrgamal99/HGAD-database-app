@@ -1,12 +1,12 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
-from typing import Optional
+from typing import Optional, Tuple
 import re
 
 # تهيئة عميل Supabase مرة واحدة
 @st.cache_resource
-def get_db_connection() -> Client | None:
+def get_db_connection() -> Optional[Client]:
     try:
         url = st.secrets["supabase_url"]
         key = st.secrets["supabase_key"]
@@ -66,7 +66,7 @@ def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFra
 
 def _get_company_and_contract_ids(
     supabase: Client, company_name: str, project_name: str
-) -> tuple[int | None, int | None]:
+) -> Tuple[Optional[int], Optional[int]]:
     try:
         company_resp = (
             supabase.table("company")
