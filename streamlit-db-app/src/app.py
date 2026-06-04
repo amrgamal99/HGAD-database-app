@@ -1246,7 +1246,7 @@ def main() -> None:
     st.dataframe(df, column_config=column_config, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
     if type_key not in {"contract", "guarantee"}:
-        _render_dataframe_summary(df, title="الملخص الاحترافي للبيانات")
+        _render_dataframe_summary(df, title="ملخص للبيانات")
 
     title_generic = compose_pdf_title(company_name, project_name, type_label, g_date_from, g_date_to)
 
