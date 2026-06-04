@@ -1152,7 +1152,6 @@ def main() -> None:
         st.markdown('<div class="card soft">', unsafe_allow_html=True)
         st.dataframe(df_flow_display, column_config=flow_col_config, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
-        _render_dataframe_summary(df_flow_display, title="ملخص دفتر التدفق")
 
         xlsx_flow = make_excel_bytes(df_flow_display, sheet_name="دفتر_التدفق", title_line=title_flow, put_logo=True)
         if xlsx_flow:
