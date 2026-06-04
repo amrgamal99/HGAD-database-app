@@ -1052,7 +1052,8 @@ def _render_dataframe_summary(df: pd.DataFrame, title: str = "الملخص ال�
     if df is None or df.empty:
         return
 
-    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    excluded_summary_cols = {"قيمة الشيك"}
+    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and str(c) not in excluded_summary_cols]
     summary_pairs = [("عدد الصفوف", f"{len(df):,}")]
 
     for col in numeric_cols:
