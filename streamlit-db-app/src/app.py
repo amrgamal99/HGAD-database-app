@@ -999,6 +999,55 @@ def _format_summary_number(value) -> str:
         return "" if value is None else str(value)
 
 
+def _find_date_column(df: pd.DataFrame) -> Optional[str]:
+    for col in df.columns:
+        if any(k in str(col) for k in ["تاريخ", "إصدار", "date", " التعاقد"]):
+            return col
+    return None
+
+
+def _render_checks_summary(df: pd.DataFrame) -> List[Tuple[str, str]]:
+    if df is None or df.empty:
+        return []
+
+    purpose_col = "الغرض من إصدار الشيك"
+    amount_col = "قيمة الشيك"
+    if purpose_col not in df.columns or amount_col not in df.columns:
+        return []
+
+    out = df.copy()
+    out[amount_col] = pd.to_numeric(out[amount_col], errors="coerce")
+    purpose_values = ["سداد مستخلص", "دفعه مقدمه", "رد تامينات اجتماعيه"]
+
+    rows: List[Tuple[str, str]] = []
+    total_all = out[amount_col].sum(skipna=True)
+    if not pd.isna(total_all) and total_all != 0:
+        rows.append(("إجمالي قيمة الشيكات", _format_summary_number(total_all)))
+
+    for purpose in purpose_values:
+        purpose_sum = out.loc[out[purpose_col].astype(str).str.strip() == purpose, amount_col].sum(skipna=True)
+        if not pd.isna(purpose_sum) and purpose_sum != 0:
+            rows.append((f"إجمالي {purpose}", _format_summary_number(purpose_sum)))
+
+    date_col = _find_date_column(out)
+    if date_col is not None:
+        try:
+            dates = pd.to_datetime(out[date_col], errors="coerce")
+            df_2026 = out[dates.dt.year == 2026]
+            if not df_2026.empty:
+                total_2026 = df_2026[amount_col].sum(skipna=True)
+                if not pd.isna(total_2026) and total_2026 != 0:
+                    rows.append(("إجمالي قيمة الشيكات في 2026", _format_summary_number(total_2026)))
+                for purpose in purpose_values:
+                    purpose_sum_2026 = df_2026.loc[df_2026[purpose_col].astype(str).str.strip() == purpose, amount_col].sum(skipna=True)
+                    if not pd.isna(purpose_sum_2026) and purpose_sum_2026 != 0:
+                        rows.append((f"إجمالي {purpose} في 2026", _format_summary_number(purpose_sum_2026)))
+        except Exception:
+            pass
+
+    return rows
+
+
 def _render_dataframe_summary(df: pd.DataFrame, title: str = "الملخص الاحترافي") -> None:
     if df is None or df.empty:
         return
@@ -1011,6 +1060,8 @@ def _render_dataframe_summary(df: pd.DataFrame, title: str = "الملخص ال�
         if pd.isna(total):
             continue
         summary_pairs.append((str(col), _format_summary_number(total)))
+
+    summary_pairs += _render_checks_summary(df)
 
     if not summary_pairs:
         return
