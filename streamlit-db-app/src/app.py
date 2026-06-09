@@ -1029,21 +1029,34 @@ def _render_checks_summary(df: pd.DataFrame) -> List[Tuple[str, str]]:
         if not pd.isna(purpose_sum) and purpose_sum != 0:
             rows.append((f"إجمالي {purpose}", _format_summary_number(purpose_sum)))
 
+    fiscal_year_col = "السنة_المالية_المحاسبية"
+    df_2026 = pd.DataFrame()
+    fiscal_used = False
+
+    if fiscal_year_col in out.columns:
+        try:
+            fiscal_year = pd.to_numeric(out[fiscal_year_col], errors="coerce")
+            df_2026 = out[fiscal_year == 2026]
+            fiscal_used = True
+        except Exception:
+            df_2026 = pd.DataFrame()
+
     date_col = _find_date_column(out)
-    if date_col is not None:
+    if (df_2026.empty or not fiscal_used) and date_col is not None:
         try:
             dates = pd.to_datetime(out[date_col], errors="coerce")
             df_2026 = out[dates.dt.year == 2026]
-            if not df_2026.empty:
-                total_2026 = df_2026[amount_col].sum(skipna=True)
-                if not pd.isna(total_2026) and total_2026 != 0:
-                    rows.append(("إجمالي قيمة الشيكات في 2026", _format_summary_number(total_2026)))
-                for purpose in purpose_values:
-                    purpose_sum_2026 = df_2026.loc[df_2026[purpose_col].astype(str).str.strip() == purpose, amount_col].sum(skipna=True)
-                    if not pd.isna(purpose_sum_2026) and purpose_sum_2026 != 0:
-                        rows.append((f"إجمالي {purpose} في 2026", _format_summary_number(purpose_sum_2026)))
         except Exception:
-            pass
+            df_2026 = pd.DataFrame()
+
+    if not df_2026.empty:
+        total_2026 = df_2026[amount_col].sum(skipna=True)
+        if not pd.isna(total_2026) and total_2026 != 0:
+            rows.append(("إجمالي قيمة الشيكات في 2026", _format_summary_number(total_2026)))
+        for purpose in purpose_values:
+            purpose_sum_2026 = df_2026.loc[df_2026[purpose_col].astype(str).str.strip() == purpose, amount_col].sum(skipna=True)
+            if not pd.isna(purpose_sum_2026) and purpose_sum_2026 != 0:
+                rows.append((f"إجمالي {purpose} في 2026", _format_summary_number(purpose_sum_2026)))
 
     return rows
 
