@@ -133,6 +133,27 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
                     inplace=True, errors="ignore")
             df.dropna(axis=1, how="all", inplace=True)
 
+            if tbl == "guarantee":
+                guarantee_cols = [
+                    "رقم خطاب الضمان",
+                    "البنك المصدر",
+                    "اريخ إصدار الضمان",
+                    "تاريخ انتهاء الضمان",
+                    "رابط نسخة الضمان",
+                    "الغرض من اصدار خطاب ضمان",
+                    "قيمة خطاب الضمان الحالية",
+                    "قيمه ما تم تخفيضه في خطاب ضمان",
+                ]
+                existing_cols = [c for c in guarantee_cols if c in df.columns]
+                other_cols = [c for c in df.columns if c not in existing_cols]
+                df = df[existing_cols + other_cols]
+
+        if tbl == "guarantee" and not df.empty and "رقم خطاب الضمان" in df.columns:
+            try:
+                df = df.sort_values(by="رقم خطاب الضمان", ascending=True, na_position="last")
+            except Exception:
+                pass
+
         for col in df.columns:
             if "تاريخ" in col or "إصدار" in col:
                 try:
