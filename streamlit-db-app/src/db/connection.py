@@ -149,8 +149,13 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
                 df = df[existing_cols + other_cols]
 
         if tbl == "guarantee" and not df.empty and "رقم خطاب الضمان" in df.columns:
+            sort_by = ["رقم خطاب الضمان"]
+            ascending = [True]
+            if "تاريخ انتهاء الضمان" in df.columns:
+                sort_by.append("تاريخ انتهاء الضمان")
+                ascending.append(True)
             try:
-                df = df.sort_values(by="رقم خطاب الضمان", ascending=True, na_position="last")
+                df = df.sort_values(by=sort_by, ascending=ascending, na_position="last")
             except Exception:
                 pass
 
