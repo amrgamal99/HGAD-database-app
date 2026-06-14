@@ -137,7 +137,7 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
                 guarantee_cols = [
                     "رقم خطاب الضمان",
                     "البنك المصدر",
-                    "اريخ إصدار الضمان",
+                    "تاريخ إصدار الضمان",
                     "تاريخ انتهاء الضمان",
                     "رابط نسخة الضمان",
                     "الغرض من اصدار خطاب ضمان",
@@ -151,6 +151,9 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
         if tbl == "guarantee" and not df.empty and "رقم خطاب الضمان" in df.columns:
             sort_by = ["رقم خطاب الضمان"]
             ascending = [True]
+            if "تاريخ إصدار الضمان" in df.columns:
+                sort_by.append("تاريخ إصدار الضمان")
+                ascending.append(True)
             if "تاريخ انتهاء الضمان" in df.columns:
                 sort_by.append("تاريخ انتهاء الضمان")
                 ascending.append(True)
