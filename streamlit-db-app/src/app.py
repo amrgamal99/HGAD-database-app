@@ -500,7 +500,12 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
             else:
                 ws.write(r0 + 1 + i, c0 + j, sval, fmt_text)
 
-    exclude_keywords = ['id', 'رقم', 'تاريخ', 'date', 'code', 'كود', 'بنك', 'bank', 'نوع', 'type', 'السنة_المالية_المحاسبية']
+    exclude_keywords = {
+        _normalize_name(k)
+        for k in ['id', 'رقم', 'تاريخ', 'date', 'code', 'كود', 'بنك', 'bank', 'نوع', 'type',
+                  'السنة_المالية_المحاسبية', 'السنة المالية المحاسبية', 'السنة_المالية المحاسبية',
+                  'السنة المالية_المحاسبية']
+    }
     sum_row_idx = r0 + 1 + len(df)
 
     # ✅ صف المجموع — أحمر
@@ -508,8 +513,8 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
         ws.write(sum_row_idx, c0, "المجموع", fmt_sum_label)
     for j, col in enumerate(df.columns):
         if j == 0: continue
-        col_lower = str(col).lower()
-        if not any(kw in col_lower for kw in exclude_keywords):
+        col_norm = _normalize_name(str(col).lower())
+        if not any(kw in col_norm for kw in exclude_keywords):
             try:
                 numeric_col = pd.to_numeric(df[col], errors='coerce')
                 if not numeric_col.isna().all():
