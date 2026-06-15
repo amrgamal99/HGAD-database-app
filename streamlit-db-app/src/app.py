@@ -500,7 +500,7 @@ def _write_excel_table(ws, workbook, df: pd.DataFrame, start_row: int, start_col
             else:
                 ws.write(r0 + 1 + i, c0 + j, sval, fmt_text)
 
-    exclude_keywords = ['id', 'رقم', 'تاريخ', 'date', 'code', 'كود', 'بنك', 'bank', 'نوع', 'type']
+    exclude_keywords = ['id', 'رقم', 'تاريخ', 'date', 'code', 'كود', 'بنك', 'bank', 'نوع', 'type', 'السنة_المالية_المحاسبية']
     sum_row_idx = r0 + 1 + len(df)
 
     # ✅ صف المجموع — أحمر
