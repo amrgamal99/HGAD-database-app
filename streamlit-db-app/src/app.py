@@ -1179,7 +1179,7 @@ def main() -> None:
         title_flow    = compose_pdf_title(company_name, project_name, "دفتر التدفق", g_date_from, g_date_to)
         title_all     = compose_pdf_title(company_name, project_name, "ملخص + دفتر التدفق", g_date_from, g_date_to)
 
-        xlsx_sum = make_excel_bytes(df_summary, sheet_name="ملخص", title_line=title_summary, put_logo=True)
+        xlsx_sum = make_excel_bytes(df_summary, sheet_name="ملخص", title_line=title_summary, put_logo=False)
         if xlsx_sum:
             st.download_button("تنزيل الملخص كـ Excel", xlsx_sum,
                                file_name=_safe_filename(f"ملخص_{company_name}_{project_name}.xlsx"),
@@ -1218,7 +1218,7 @@ def main() -> None:
         st.dataframe(df_flow_display, column_config=flow_col_config, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        xlsx_flow = make_excel_bytes(df_flow_display, sheet_name="دفتر_التدفق", title_line=title_flow, put_logo=True)
+        xlsx_flow = make_excel_bytes(df_flow_display, sheet_name="دفتر_التدفق", title_line=title_flow, put_logo=False)
         if xlsx_flow:
             st.download_button("تنزيل الدفتر كـ Excel", xlsx_flow,
                                file_name=_safe_filename(f"دفتر_التدفق_{company_name}_{project_name}.xlsx"),
@@ -1259,7 +1259,7 @@ def main() -> None:
         st.markdown("### تنزيل تقرير موحّد")
         excel_two = make_excel_combined_two_sheets(
             {"ملخص": df_summary, "دفتر_التدفق": df_flow_display},
-            titles={"ملخص": title_summary, "دفتر_التدفق": title_flow}, put_logo=True
+            titles={"ملخص": title_summary, "دفتر_التدفق": title_flow}, put_logo=False
         )
         if excel_two:
             st.download_button("Excel موحّد (ورقتان)", excel_two,
@@ -1268,7 +1268,7 @@ def main() -> None:
 
         excel_one = make_excel_single_sheet_stacked(
             {"ملخص": df_summary, "دفتر_التدفق": df_flow_display},
-            title_line=title_all, sheet_name="تقرير_موحد", put_logo=True
+            title_line=title_all, sheet_name="تقرير_موحد", put_logo=False
         )
         if excel_one:
             st.download_button("Excel موحّد (ورقة واحدة)", excel_one,
@@ -1315,7 +1315,7 @@ def main() -> None:
 
     title_generic = compose_pdf_title(company_name, project_name, type_label, g_date_from, g_date_to)
 
-    xlsx_bytes = make_excel_bytes(df, sheet_name="البيانات", title_line=title_generic, put_logo=True)
+    xlsx_bytes = make_excel_bytes(df, sheet_name="البيانات", title_line=title_generic, put_logo=False)
     if xlsx_bytes:
         st.download_button("تنزيل كـ Excel (XLSX)", xlsx_bytes,
                            file_name=_safe_filename(f"{type_key}_{company_name}_{project_name}.xlsx"),
