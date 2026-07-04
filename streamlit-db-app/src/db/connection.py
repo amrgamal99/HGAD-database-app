@@ -123,15 +123,57 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
                 .execute()
             )
             data = resp.data or []
+        elif tbl == "supplier_costs":
+            resp = supabase.table("supplier_monthly_cost").select("*").eq("companyid", company_id)
+            if contract_id is not None:
+                resp = resp.eq("contractid", contract_id)
+            resp = resp.execute()
+            data = resp.data or []
+            df = pd.DataFrame(data)
+            if not df.empty:
+                supplier_ids = df.get("supplierid")
+                if supplier_ids is not None:
+                    try:
+                        supplier_ids = pd.Series(supplier_ids).dropna().astype(int).unique().tolist()
+                    except Exception:
+                        supplier_ids = []
+                else:
+                    supplier_ids = []
+
+                if supplier_ids:
+                    suppliers_resp = (
+                        supabase.table("supplier")
+                        .select("supplierid, \"اسم المورد\", \"المواد الخام\"")
+                        .in_("supplierid", supplier_ids)
+                        .execute()
+                    )
+                    suppliers = suppliers_resp.data or []
+                    supplier_df = pd.DataFrame(suppliers)
+                    if not supplier_df.empty:
+                        df = df.merge(supplier_df, on="supplierid", how="left")
+
+                desired_cols = [
+                    "اسم المورد",
+                    "المواد الخام",
+                    "من تاريخ",
+                    "الي تاريخ",
+                    "القيمة خلال الفترة",
+                ]
+                cols_present = [c for c in desired_cols if c in df.columns]
+                df = df[cols_present] if cols_present else df
         else:
             st.error("نوع البيانات غير صالح.")
             return pd.DataFrame()
 
-        df = pd.DataFrame(data)
-        if not df.empty:
-            df.drop(columns=[c for c in df.columns if c.lower().endswith("id")],
-                    inplace=True, errors="ignore")
-            df.dropna(axis=1, how="all", inplace=True)
+        if tbl != "supplier_costs":
+            df = pd.DataFrame(data)
+            if not df.empty:
+                df.drop(columns=[c for c in df.columns if c.lower().endswith("id")],
+                        inplace=True, errors="ignore")
+                df.dropna(axis=1, how="all", inplace=True)
+        else:
+            if not df.empty:
+                df.dropna(axis=1, how="all", inplace=True)
 
             if tbl == "guarantee":
                 guarantee_cols = [
@@ -297,12 +339,16 @@ def fetch_contract_summary_view(
                 '"الدفعه المقدمه",'
                 '"التحصيلات",'
                 '"التحصيلات 2026",'
+                '"مواد اوليه",'
+                '"مواد اوليه 2026",'
+                '"مقاول باطن",'
+                '"مقاول باطن2026",'
                 '"مصروفات تامينات اجتماعية",'
                 '"مصروفات تامينات اجتماعية 2026",'
-                '"المستحق صرفه",'
                 '"المستحق صرفه من تامينات اجتماعيه",'
                 '"المتبقي من دفعات المقدمه",'
-                '"شيكات لم تحصل"'
+                '"شيكات لم تحصل"',
+                '"المستحق صرفه"'
             )
             .filter('اسم المشروع', 'eq', project_name)
             .execute()
