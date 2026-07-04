@@ -61,7 +61,7 @@ def create_type_dropdown():
         "خطابات الضمان": "guarantee",
         "المستخلصات": "invoice",
         "الشيكات / التحويلات": "checks",
-        "مواد اوليه و مقاول باطن": "supplier_costs",
+        "مواد اوليه و مقاولين باطن": "supplier_costs",
         "شهادة تامينات": "social_insurance_certificate",  # <-- note space: "شهادة تامينات"
     }
     display_list = list(display_to_key.keys())
