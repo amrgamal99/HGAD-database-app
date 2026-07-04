@@ -1068,10 +1068,6 @@ def _render_checks_summary(df: pd.DataFrame) -> List[Tuple[str, str]]:
 
 def _render_supplier_costs_summary(df: pd.DataFrame) -> List[Tuple[str, str]]:
     """
-    Render supplier monthly costs summary grouped by material type:
-    - مواد اوليه (materials, non-subcontractors)
-    - مقاول باطن (subcontractors)
-    Both for all time and for 2026 specifically.
     """
     if df is None or df.empty:
         return []
@@ -1086,36 +1082,41 @@ def _render_supplier_costs_summary(df: pd.DataFrame) -> List[Tuple[str, str]]:
     out = df.copy()
     out[amount_col] = pd.to_numeric(out[amount_col], errors="coerce")
 
+    # Get unique materials
+    unique_materials = out[material_col].dropna().unique()
+    if len(unique_materials) == 0:
+        return []
+
     rows: List[Tuple[str, str]] = []
 
-    # All-time aggregations
-    materials_all = out.loc[out[material_col].astype(str).str.strip() != "مقاول باطن", amount_col].sum(skipna=True)
-    if not pd.isna(materials_all) and materials_all != 0:
-        rows.append(("مواد اوليه", _format_summary_number(materials_all)))
-
-    subcontractors_all = out.loc[out[material_col].astype(str).str.strip() == "مقاول باطن", amount_col].sum(skipna=True)
-    if not pd.isna(subcontractors_all) and subcontractors_all != 0:
-        rows.append(("مقاول باطن", _format_summary_number(subcontractors_all)))
-
-    # 2026 aggregations if date column exists
+    # Extract 2026 data if date column exists
     df_2026 = pd.DataFrame()
     if date_col in out.columns:
         try:
             dates = pd.to_datetime(out[date_col], errors="coerce")
-            df_2026 = out[dates.dt.year == 2026]
+            df_2026 = out[dates.dt.year == 2026].copy()
         except Exception:
             df_2026 = pd.DataFrame()
 
-    if not df_2026.empty:
-        materials_2026 = df_2026.loc[df_2026[material_col].astype(str).str.strip() != "مقاول باطن", amount_col].sum(skipna=True)
-        if not pd.isna(materials_2026) and materials_2026 != 0:
-            rows.append(("مواد اوليه 2026", _format_summary_number(materials_2026)))
+    # Process each material type
+    for material in unique_materials:
+        material_str = str(material).strip()
+        if not material_str or material_str.lower() in ("nan", "none"):
+            continue
 
-        subcontractors_2026 = df_2026.loc[df_2026[material_col].astype(str).str.strip() == "مقاول باطن", amount_col].sum(skipna=True)
-        if not pd.isna(subcontractors_2026) and subcontractors_2026 != 0:
-            rows.append(("مقاول باطن 2026", _format_summary_number(subcontractors_2026)))
+        # All-time sum for this material
+        material_sum = out.loc[out[material_col].astype(str).str.strip() == material_str, amount_col].sum(skipna=True)
+        if not pd.isna(material_sum) and material_sum != 0:
+            rows.append((material_str, _format_summary_number(material_sum)))
+
+        # 2026-only sum for this material
+        if not df_2026.empty:
+            material_sum_2026 = df_2026.loc[df_2026[material_col].astype(str).str.strip() == material_str, amount_col].sum(skipna=True)
+            if not pd.isna(material_sum_2026) and material_sum_2026 != 0:
+                rows.append((f"{material_str} 2026", _format_summary_number(material_sum_2026)))
 
     return rows
+
 
 
 def _render_dataframe_summary(df: pd.DataFrame, title: str = "الملخص الاحترافي", data_type: str = "") -> None:
