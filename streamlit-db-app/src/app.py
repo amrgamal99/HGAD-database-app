@@ -1066,21 +1066,79 @@ def _render_checks_summary(df: pd.DataFrame) -> List[Tuple[str, str]]:
     return rows
 
 
-def _render_dataframe_summary(df: pd.DataFrame, title: str = "الملخص الاحترافي") -> None:
+def _render_supplier_costs_summary(df: pd.DataFrame) -> List[Tuple[str, str]]:
+    """
+    Render supplier monthly costs summary grouped by material type:
+    - مواد اوليه (materials, non-subcontractors)
+    - مقاول باطن (subcontractors)
+    Both for all time and for 2026 specifically.
+    """
+    if df is None or df.empty:
+        return []
+
+    material_col = "المواد الخام"
+    amount_col = "القيمة خلال الفترة"
+    date_col = "من تاريخ"
+
+    if material_col not in df.columns or amount_col not in df.columns:
+        return []
+
+    out = df.copy()
+    out[amount_col] = pd.to_numeric(out[amount_col], errors="coerce")
+
+    rows: List[Tuple[str, str]] = []
+
+    # All-time aggregations
+    materials_all = out.loc[out[material_col].astype(str).str.strip() != "مقاول باطن", amount_col].sum(skipna=True)
+    if not pd.isna(materials_all) and materials_all != 0:
+        rows.append(("مواد اوليه", _format_summary_number(materials_all)))
+
+    subcontractors_all = out.loc[out[material_col].astype(str).str.strip() == "مقاول باطن", amount_col].sum(skipna=True)
+    if not pd.isna(subcontractors_all) and subcontractors_all != 0:
+        rows.append(("مقاول باطن", _format_summary_number(subcontractors_all)))
+
+    # 2026 aggregations if date column exists
+    df_2026 = pd.DataFrame()
+    if date_col in out.columns:
+        try:
+            dates = pd.to_datetime(out[date_col], errors="coerce")
+            df_2026 = out[dates.dt.year == 2026]
+        except Exception:
+            df_2026 = pd.DataFrame()
+
+    if not df_2026.empty:
+        materials_2026 = df_2026.loc[df_2026[material_col].astype(str).str.strip() != "مقاول باطن", amount_col].sum(skipna=True)
+        if not pd.isna(materials_2026) and materials_2026 != 0:
+            rows.append(("مواد اوليه 2026", _format_summary_number(materials_2026)))
+
+        subcontractors_2026 = df_2026.loc[df_2026[material_col].astype(str).str.strip() == "مقاول باطن", amount_col].sum(skipna=True)
+        if not pd.isna(subcontractors_2026) and subcontractors_2026 != 0:
+            rows.append(("مقاول باطن 2026", _format_summary_number(subcontractors_2026)))
+
+    return rows
+
+
+def _render_dataframe_summary(df: pd.DataFrame, title: str = "الملخص الاحترافي", data_type: str = "") -> None:
     if df is None or df.empty:
         return
 
-    excluded_summary_cols = {"قيمة الشيك", "السنة_المالية_المحاسبية"}
-    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and str(c) not in excluded_summary_cols]
-    summary_pairs = [("عدد الصفوف", f"{len(df):,}")]
+    summary_pairs: List[Tuple[str, str]] = []
 
-    for col in numeric_cols:
-        total = pd.to_numeric(df[col], errors="coerce").sum(skipna=True)
-        if pd.isna(total):
-            continue
-        summary_pairs.append((str(col), _format_summary_number(total)))
+    # Special handling for supplier costs
+    if data_type == "supplier_costs":
+        summary_pairs = _render_supplier_costs_summary(df)
+    else:
+        excluded_summary_cols = {"قيمة الشيك", "السنة_المالية_المحاسبية"}
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and str(c) not in excluded_summary_cols]
+        summary_pairs = [("عدد الصفوف", f"{len(df):,}")]
 
-    summary_pairs += _render_checks_summary(df)
+        for col in numeric_cols:
+            total = pd.to_numeric(df[col], errors="coerce").sum(skipna=True)
+            if pd.isna(total):
+                continue
+            summary_pairs.append((str(col), _format_summary_number(total)))
+
+        summary_pairs += _render_checks_summary(df)
 
     if not summary_pairs:
         return
@@ -1316,7 +1374,7 @@ def main() -> None:
     st.dataframe(df, column_config=column_config, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
     if type_key not in {"contract", "guarantee"}:
-        _render_dataframe_summary(df, title="ملخص للبيانات")
+        _render_dataframe_summary(df, title="ملخص للبيانات", data_type=type_key)
 
     title_generic = compose_pdf_title(company_name, project_name, type_label, g_date_from, g_date_to)
 
