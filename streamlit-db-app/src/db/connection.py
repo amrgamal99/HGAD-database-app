@@ -19,21 +19,27 @@ def get_db_connection() -> Optional[Client]:
 # الشركات
 def fetch_companies(supabase: Client, factory_name: Optional[str] = None) -> pd.DataFrame:
     try:
-        query = supabase.table("company").select("companyname")
+        query = supabase.table("company").select("companyid, companyname, updated_at")
         if factory_name and factory_name != "الكل":
             query = query.eq("factoryname", factory_name)
         resp = query.execute()
         df = pd.DataFrame(resp.data or [])
-        if "companyname" not in df.columns:
-            df = pd.DataFrame(columns=["companyname"])
-        df = df.rename(columns={"companyname": "اسم الشركة"})
-        if "اسم الشركة" not in df.columns:
-            df = pd.DataFrame(columns=["اسم الشركة"])
-        if not df.empty:
-            df = df.drop_duplicates().sort_values("اسم الشركة", key=lambda s: s.str.lower())
-        return df
     except Exception:
-        return pd.DataFrame(columns=["اسم الشركة"])
+        query = supabase.table("company").select("companyid, companyname")
+        if factory_name and factory_name != "الكل":
+            query = query.eq("factoryname", factory_name)
+        resp = query.execute()
+        df = pd.DataFrame(resp.data or [])
+
+    if "companyname" not in df.columns:
+        df = pd.DataFrame(columns=["companyname"])
+    df = df.rename(columns={"companyname": "اسم الشركة", "updated_at": "آخر تعديل"})
+    if "اسم الشركة" not in df.columns:
+        df = pd.DataFrame(columns=["اسم الشركة"])
+    if not df.empty:
+        df = df.drop_duplicates(subset=["اسم الشركة"], keep="last")
+        df = df.sort_values("اسم الشركة", key=lambda s: s.str.lower())
+    return df
 
 # المشاريع بحسب الشركة
 def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFrame:
@@ -51,15 +57,31 @@ def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFra
             return pd.DataFrame(columns=["اسم المشروع"])
         company_id = company_resp.data["companyid"]
 
-        projects_resp = (
-            supabase.table("contract")
-            .select('"اسم المشروع"')
-            .eq("companyid", company_id)
-            .execute()
-        )
-        df = pd.DataFrame(projects_resp.data or [])
-        df = df.rename(columns={'"اسم المشروع"': 'اسم المشروع'})
-        return df.drop_duplicates()
+        try:
+            projects_resp = (
+                supabase.table("contract")
+                .select('"اسم المشروع", updated_at')
+                .eq("companyid", company_id)
+                .execute()
+            )
+            df = pd.DataFrame(projects_resp.data or [])
+        except Exception:
+            projects_resp = (
+                supabase.table("contract")
+                .select('"اسم المشروع"')
+                .eq("companyid", company_id)
+                .execute()
+            )
+            df = pd.DataFrame(projects_resp.data or [])
+
+        df = df.rename(columns={'"اسم المشروع"': 'اسم المشروع', 'updated_at': 'آخر تعديل'})
+        if "اسم المشروع" not in df.columns:
+            return pd.DataFrame(columns=["اسم المشروع"])
+        if not df.empty:
+            if "آخر تعديل" in df.columns:
+                df = df.sort_values(["اسم المشروع", "آخر تعديل"], ascending=[True, False], na_position="last")
+            df = df.drop_duplicates(subset=["اسم المشروع"], keep="first")
+        return df
 
     except Exception as e:
         st.caption(f"⚠️ fetch_projects_by_company error: {e}")
