@@ -121,16 +121,15 @@ def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:
         "مواد اوليه و مقاولين باطن": "supplier_costs",
         "شهادة تامينات": "social_insurance_certificate",  # <-- note space: "شهادة تامينات"
     }
-    last_edits = fetch_type_last_edit_dates(conn)
     options = [
-        (display_name, key, last_edits.get(key))
+        (display_name, key)
         for display_name, key in display_to_key.items()
     ]
     selected = st.selectbox(
         "اختر نوع البيانات",
         options=options,
         index=0 if options else None,
-        format_func=lambda x: _format_option_label(x[0], x[2]),
+        format_func=lambda x: x[0],
         key="type_select",
     )
     return selected[0], selected[1]
