@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 import re
 
 # تهيئة عميل Supabase مرة واحدة
@@ -33,6 +33,11 @@ def fetch_companies(supabase: Client, factory_name: Optional[str] = None) -> pd.
 
     if "companyname" not in df.columns:
         df = pd.DataFrame(columns=["companyname"])
+    if "updated_at" in df.columns:
+        try:
+            df["updated_at"] = pd.to_datetime(df["updated_at"], errors="coerce").dt.date.astype(str)
+        except Exception:
+            pass
     df = df.rename(columns={"companyname": "اسم الشركة", "updated_at": "آخر تعديل"})
     if "اسم الشركة" not in df.columns:
         df = pd.DataFrame(columns=["اسم الشركة"])
@@ -74,6 +79,11 @@ def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFra
             )
             df = pd.DataFrame(projects_resp.data or [])
 
+        if "updated_at" in df.columns:
+            try:
+                df["updated_at"] = pd.to_datetime(df["updated_at"], errors="coerce").dt.date.astype(str)
+            except Exception:
+                pass
         df = df.rename(columns={'"اسم المشروع"': 'اسم المشروع', 'updated_at': 'آخر تعديل'})
         if "اسم المشروع" not in df.columns:
             return pd.DataFrame(columns=["اسم المشروع"])
@@ -86,6 +96,40 @@ def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFra
     except Exception as e:
         st.caption(f"⚠️ fetch_projects_by_company error: {e}")
         return pd.DataFrame(columns=["اسم المشروع"])
+
+
+def _fetch_latest_updated_at(supabase: Client, table_name: str) -> Optional[str]:
+    try:
+        resp = (
+            supabase.table(table_name)
+            .select("updated_at")
+            .order("updated_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if resp.data and isinstance(resp.data, list):
+            val = resp.data[0].get("updated_at")
+            if val:
+                try:
+                    return pd.to_datetime(val, errors="coerce").date().isoformat()
+                except Exception:
+                    return str(val)[:10]
+    except Exception:
+        pass
+    return None
+
+
+def fetch_type_last_edit_dates(supabase: Client) -> Dict[str, Optional[str]]:
+    mapping = {
+        "financial_report": "contract",
+        "contract": "contract",
+        "guarantee": "guarantee",
+        "invoice": "invoice",
+        "checks": "checks",
+        "social_insurance_certificate": "social_insurance_certificate",
+        "supplier_costs": "supplier_monthly_cost",
+    }
+    return {key: _fetch_latest_updated_at(supabase, table) for key, table in mapping.items()}
 
 
 def _get_company_and_contract_ids(

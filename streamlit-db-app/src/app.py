@@ -1210,7 +1210,7 @@ def main() -> None:
         factory_name = create_factory_dropdown()
         company_name = create_company_dropdown(conn, factory_name=factory_name)
         project_name = create_project_dropdown(conn, company_name)
-        type_label, type_key = create_type_dropdown()
+        type_label, type_key = create_type_dropdown(conn)
 
         st.markdown("---")
         search_clicked = st.button("🔍 بحث", key="sidebar_search_btn", use_container_width=True)

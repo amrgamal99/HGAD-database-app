@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
-from typing import Optional
-from db.connection import fetch_companies, fetch_projects_by_company
+from typing import Optional, Tuple
+from db.connection import fetch_companies, fetch_projects_by_company, fetch_type_last_edit_dates
 
 def create_factory_dropdown() -> Optional[str]:
     display_to_factory = {
@@ -24,36 +24,61 @@ def create_company_dropdown(conn, factory_name: Optional[str] = None):
         st.info(message)
         return None
 
-    companies = (
-        companies_df["اسم الشركة"]
-        .dropna()
-        .drop_duplicates()
-        .sort_values(key=lambda s: s.str.lower())
-        .tolist()
-    )
+    companies_df = companies_df.copy()
+    companies_df["آخر تعديل"] = companies_df.get("آخر تعديل", None)
+    companies_df["آخر تعديل"] = companies_df["آخر تعديل"].replace({pd.NaT: None}).astype(object)
 
-    # search box with icon — filters by prefix (starts with)
+    rows = companies_df.loc[companies_df["اسم الشركة"].notna(), ["اسم الشركة", "آخر تعديل"]]
+    rows = rows.drop_duplicates(subset=["اسم الشركة"], keep="last")
+    rows = rows.sort_values("اسم الشركة", key=lambda s: s.str.lower())
+    options = [ (row["اسم الشركة"], row["آخر تعديل"]) for _, row in rows.iterrows() ]
+
     query = st.text_input("🔍 اكتب بداية اسم الشركة", value="", placeholder="اكتب بداية اسم الشركة ...", key="company_search")
     if query:
         q = str(query).strip().lower()
-        filtered = [c for c in companies if c.lower().startswith(q)]
+        filtered = [opt for opt in options if opt[0].lower().startswith(q)]
     else:
-        filtered = companies
+        filtered = options
 
     if not filtered:
         st.info(f"لا توجد شركات تبدأ بـ «{query}»") if query else st.info("لا توجد شركات.")
         return None
 
-    return st.selectbox("اختر الشركة", options=filtered, index=0 if filtered else None, key="company_select")
+    selected = st.selectbox(
+        "اختر الشركة",
+        options=filtered,
+        index=0 if filtered else None,
+        format_func=lambda x: f"{x[0]} — آخر تعديل: {x[1]}" if x[1] else x[0],
+        key="company_select",
+    )
+    return selected[0]
 
 def create_project_dropdown(conn, company_name: str):
     if not company_name:
         return None
     projects_df = fetch_projects_by_company(conn, company_name)
-    projects = projects_df["اسم المشروع"].tolist()
-    return st.selectbox("اختر المشروع", options=projects, index=0 if projects else None, placeholder="— اختر —")
+    projects_df = projects_df.copy()
+    projects_df["آخر تعديل"] = projects_df.get("آخر تعديل", None)
+    projects_df["آخر تعديل"] = projects_df["آخر تعديل"].replace({pd.NaT: None}).astype(object)
 
-def create_type_dropdown():
+    rows = projects_df.loc[projects_df["اسم المشروع"].notna(), ["اسم المشروع", "آخر تعديل"]]
+    rows = rows.drop_duplicates(subset=["اسم المشروع"], keep="first")
+    rows = rows.sort_values("اسم المشروع", key=lambda s: s.str.lower())
+    options = [(row["اسم المشروع"], row["آخر تعديل"]) for _, row in rows.iterrows()]
+
+    if not options:
+        return None
+
+    selected = st.selectbox(
+        "اختر المشروع",
+        options=options,
+        index=0,
+        format_func=lambda x: f"{x[0]} — آخر تعديل: {x[1]}" if x[1] else x[0],
+        placeholder="— اختر —",
+    )
+    return selected[0]
+
+def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:
     # إضافة "تقرير مالي" كخيار جديد يفعّل عرض الـ Views
     display_to_key = {
         "تقرير مالي": "financial_report",
@@ -64,9 +89,19 @@ def create_type_dropdown():
         "مواد اوليه و مقاولين باطن": "supplier_costs",
         "شهادة تامينات": "social_insurance_certificate",  # <-- note space: "شهادة تامينات"
     }
-    display_list = list(display_to_key.keys())
-    display_choice = st.selectbox("اختر نوع البيانات", options=display_list, index=0 if display_list else None, placeholder="— اختر —")
-    return display_choice, display_to_key.get(display_choice)
+    last_edits = fetch_type_last_edit_dates(conn)
+    options = [
+        (display_name, key, last_edits.get(key))
+        for display_name, key in display_to_key.items()
+    ]
+    selected = st.selectbox(
+        "اختر نوع البيانات",
+        options=options,
+        index=0 if options else None,
+        format_func=lambda x: f"{x[0]} — آخر تعديل: {x[2]}" if x[2] else x[0],
+        key="type_select",
+    )
+    return selected[0], selected[1]
 
 def create_column_search(df: pd.DataFrame):
     if df.empty:
