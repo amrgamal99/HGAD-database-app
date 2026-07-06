@@ -19,7 +19,7 @@ def get_db_connection() -> Optional[Client]:
 # الشركات
 def fetch_companies(supabase: Client, factory_name: Optional[str] = None) -> pd.DataFrame:
     try:
-        query = supabase.table("company").select("companyid, companyname, updated_at")
+        query = supabase.table("company").select("companyid, companyname, \"اخر تعديل\"")
         if factory_name and factory_name != "الكل":
             query = query.eq("factoryname", factory_name)
         resp = query.execute()
@@ -33,12 +33,12 @@ def fetch_companies(supabase: Client, factory_name: Optional[str] = None) -> pd.
 
     if "companyname" not in df.columns:
         df = pd.DataFrame(columns=["companyname"])
-    if "updated_at" in df.columns:
+    if "اخر تعديل" in df.columns:
         try:
-            df["updated_at"] = pd.to_datetime(df["updated_at"], errors="coerce").dt.date.astype(str)
+            df["اخر تعديل"] = pd.to_datetime(df["اخر تعديل"], errors="coerce").dt.date.astype(str)
         except Exception:
             pass
-    df = df.rename(columns={"companyname": "اسم الشركة", "updated_at": "آخر تعديل"})
+    df = df.rename(columns={"companyname": "اسم الشركة", "اخر تعديل": "آخر تعديل"})
     if "اسم الشركة" not in df.columns:
         df = pd.DataFrame(columns=["اسم الشركة"])
     if not df.empty:
@@ -65,7 +65,7 @@ def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFra
         try:
             projects_resp = (
                 supabase.table("contract")
-                .select('"اسم المشروع", updated_at')
+                .select('"اسم المشروع", "اخر تعديل"')
                 .eq("companyid", company_id)
                 .execute()
             )
@@ -79,12 +79,12 @@ def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFra
             )
             df = pd.DataFrame(projects_resp.data or [])
 
-        if "updated_at" in df.columns:
+        if "اخر تعديل" in df.columns:
             try:
-                df["updated_at"] = pd.to_datetime(df["updated_at"], errors="coerce").dt.date.astype(str)
+                df["اخر تعديل"] = pd.to_datetime(df["اخر تعديل"], errors="coerce").dt.date.astype(str)
             except Exception:
                 pass
-        df = df.rename(columns={'"اسم المشروع"': 'اسم المشروع', 'updated_at': 'آخر تعديل'})
+        df = df.rename(columns={'"اسم المشروع"': 'اسم المشروع', 'اخر تعديل': 'آخر تعديل'})
         if "اسم المشروع" not in df.columns:
             return pd.DataFrame(columns=["اسم المشروع"])
         if not df.empty:
@@ -98,17 +98,17 @@ def fetch_projects_by_company(supabase: Client, company_name: str) -> pd.DataFra
         return pd.DataFrame(columns=["اسم المشروع"])
 
 
-def _fetch_latest_updated_at(supabase: Client, table_name: str) -> Optional[str]:
+def _fetch_latest_last_edit(supabase: Client, table_name: str) -> Optional[str]:
     try:
         resp = (
             supabase.table(table_name)
-            .select("updated_at")
-            .order("updated_at", desc=True)
+            .select('"اخر تعديل"')
+            .order('"اخر تعديل"', desc=True)
             .limit(1)
             .execute()
         )
         if resp.data and isinstance(resp.data, list):
-            val = resp.data[0].get("updated_at")
+            val = resp.data[0].get("اخر تعديل")
             if val:
                 try:
                     return pd.to_datetime(val, errors="coerce").date().isoformat()
@@ -129,7 +129,7 @@ def fetch_type_last_edit_dates(supabase: Client) -> Dict[str, Optional[str]]:
         "social_insurance_certificate": "social_insurance_certificate",
         "supplier_costs": "supplier_monthly_cost",
     }
-    return {key: _fetch_latest_updated_at(supabase, table) for key, table in mapping.items()}
+    return {key: _fetch_latest_last_edit(supabase, table) for key, table in mapping.items()}
 
 
 def _get_company_and_contract_ids(
