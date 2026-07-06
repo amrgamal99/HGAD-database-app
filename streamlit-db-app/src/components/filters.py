@@ -31,8 +31,8 @@ def _format_option_label(name, last_edit):
 
     edit_text = f"آخر تعديل: {last_edit}"
     if _contains_arabic(name):
-        return f"{name} \u200F|\u200F {edit_text}"
-    return f"{name} \u200E|\u200F {edit_text}"
+        return f"\u202A{edit_text}\u202C | \u202B{name}\u202C"
+    return f"\u202A{edit_text}\u202C | {name}"
 
 
 def create_factory_dropdown() -> Optional[str]:
