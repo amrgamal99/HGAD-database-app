@@ -1,3 +1,4 @@
+import re
 import streamlit as st
 import pandas as pd
 from typing import Optional, Tuple
@@ -19,9 +20,19 @@ def _normalize_last_edit(value):
         return text
 
 
+def _contains_arabic(text: str) -> bool:
+    return bool(re.search(r"[\u0600-\u06FF]", str(text)))
+
+
 def _format_option_label(name, last_edit):
     last_edit = _normalize_last_edit(last_edit)
-    return f"{name} — آخر تعديل: {last_edit}" if last_edit else name
+    if not last_edit:
+        return name
+
+    edit_text = f"آخر تعديل: {last_edit}"
+    if _contains_arabic(name):
+        return f"{name} \u200F|\u200F {edit_text}"
+    return f"{name} \u200E|\u200F {edit_text}"
 
 
 def create_factory_dropdown() -> Optional[str]:
