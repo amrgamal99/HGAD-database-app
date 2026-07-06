@@ -3,6 +3,27 @@ import pandas as pd
 from typing import Optional, Tuple
 from db.connection import fetch_companies, fetch_projects_by_company, fetch_type_last_edit_dates
 
+
+def _normalize_last_edit(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "nat"}:
+        return None
+    try:
+        parsed = pd.to_datetime(text, errors="coerce")
+        if pd.isna(parsed):
+            return text
+        return parsed.strftime("%d-%m-%Y")
+    except Exception:
+        return text
+
+
+def _format_option_label(name, last_edit):
+    last_edit = _normalize_last_edit(last_edit)
+    return f"{name} — آخر تعديل: {last_edit}" if last_edit else name
+
+
 def create_factory_dropdown() -> Optional[str]:
     display_to_factory = {
         "الكل": None,
@@ -48,7 +69,7 @@ def create_company_dropdown(conn, factory_name: Optional[str] = None):
         "اختر الشركة",
         options=filtered,
         index=0 if filtered else None,
-        format_func=lambda x: f"{x[0]} — آخر تعديل: {x[1]}" if x[1] else x[0],
+        format_func=lambda x: _format_option_label(x[0], x[1]),
         key="company_select",
     )
     return selected[0]
@@ -73,7 +94,7 @@ def create_project_dropdown(conn, company_name: str):
         "اختر المشروع",
         options=options,
         index=0,
-        format_func=lambda x: f"{x[0]} — آخر تعديل: {x[1]}" if x[1] else x[0],
+        format_func=lambda x: _format_option_label(x[0], x[1]),
         placeholder="— اختر —",
     )
     return selected[0]
@@ -98,7 +119,7 @@ def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:
         "اختر نوع البيانات",
         options=options,
         index=0 if options else None,
-        format_func=lambda x: f"{x[0]} — آخر تعديل: {x[2]}" if x[2] else x[0],
+        format_func=lambda x: _format_option_label(x[0], x[2]),
         key="type_select",
     )
     return selected[0], selected[1]
