@@ -1,3 +1,4 @@
+import json
 import re
 import streamlit as st
 import streamlit.components.v1 as components
@@ -21,55 +22,57 @@ def _normalize_last_edit(value):
         return text
 
 
-def _format_option_label(name, last_edit):
+def _inject_dropdown_styles(data_map: dict):
     """
-    Returns the name and the last-edit date joined with a newline.
-    _inject_dropdown_styles() finds this "name\\ndate" pattern in the
-    rendered option and splits it into two separately-styled elements.
-    """
-    last_edit = _normalize_last_edit(last_edit)
-    if not last_edit:
-        return name
-    return f"{name}\n{last_edit}"
+    data_map: {option_name: 'DD-MM' or None}
 
-
-def _inject_dropdown_styles():
+    Instead of encoding the date into the option label ("name\\ndate")
+    and trying to re-split that text in JS, we keep labels clean
+    (just the name) and pass a name -> date lookup map to the browser.
+    The JS then APPENDS a small badge next to each row/closed-input,
+    rather than parsing/rewriting the row's own text. This works for:
+      - <li>/<div role="option"> rows, even when BaseWeb wraps part of
+        the text in extra spans for search-match highlighting
+      - the closed select's <input>, which can't contain child nodes,
+        so its badge is positioned on the wrapper instead
     """
-    Splits each 'name\\ndate' option into two real DOM elements
-    (name / date) and styles them independently. This runs as JS
-    inside a components.html iframe but reaches into the parent
-    document (window.parent.document), so it works no matter what
-    internal markup BaseWeb/Streamlit uses for the option rows —
-    CSS pseudo-elements like ::first-line can silently fail if those
-    rows turn out to be flex containers, this approach doesn't rely
-    on that at all.
-    """
-    if st.session_state.get("_dropdown_styles_injected"):
-        return
-    st.session_state["_dropdown_styles_injected"] = True
+    clean_map = {k: v for k, v in data_map.items() if v}
 
     components.html(
-        """
+        f"""
         <script>
-        (function() {
+        (function() {{
             const doc = window.parent.document;
+            window.__ddMap = Object.assign(window.__ddMap || {{}}, {json.dumps(clean_map)});
 
-            function ensureStyle() {
+            function ensureStyle() {{
                 if (doc.getElementById('dd-style')) return;
                 const style = doc.createElement('style');
                 style.id = 'dd-style';
                 style.textContent = `
-                    .dd-opt-name {
-                        display: block;
-                        font-weight: 500;
-                        font-size: 1rem;
-                        color: #f5f6f8;
-                        text-align: right;
-                        direction: rtl;
-                        margin-bottom: 4px;
-                        line-height: 1.2;
-                    }
-                    .dd-opt-date {
+                    li[role="option"], div[role="option"] {{
+                        position: relative !important;
+                        overflow: visible !important;
+                        text-overflow: clip !important;
+                        white-space: normal !important;
+                        text-align: right !important;
+                        direction: rtl !important;
+                        font-weight: 500 !important;
+                        font-size: 1rem !important;
+                        color: #f5f6f8 !important;
+                        min-height: 52px !important;
+                        height: auto !important;
+                        padding-top: 10px !important;
+                        padding-bottom: 18px !important;
+                        border-radius: 8px !important;
+                    }}
+                    li[role="option"]:hover, div[role="option"]:hover {{
+                        background-color: rgba(255,255,255,0.08) !important;
+                    }}
+                    [data-baseweb="select"] {{
+                        position: relative !important;
+                    }}
+                    .dd-opt-date {{
                         position: absolute;
                         left: 10px;
                         bottom: 8px;
@@ -84,83 +87,50 @@ def _inject_dropdown_styles():
                         unicode-bidi: isolate;
                         z-index: 5;
                         pointer-events: none;
-                    }
-                    [data-baseweb="select"], [data-baseweb="select"] * ,
-                    li[role="option"], div[role="option"] {
-                        overflow: visible !important;
-                        text-overflow: clip !important;
-                        white-space: normal !important;
-                    }
-                    li[role="option"], div[role="option"], [data-baseweb="select"] > div {
-                        position: relative !important;
-                        min-height: 52px !important;
-                        height: auto !important;
-                        padding-top: 10px !important;
-                        padding-bottom: 18px !important;
-                        border-radius: 8px !important;
-                    }
-                    li[role="option"]:hover, div[role="option"]:hover {
-                        background-color: rgba(255,255,255,0.08) !important;
-                    }
-                    [data-baseweb="select"] > div::after,
-                    [data-baseweb="select"] > div::before {
-                        display: none !important;
-                    }
+                    }}
+                    [data-baseweb="select"] > div > .dd-opt-date {{
+                        bottom: 6px;
+                        left: 8px;
+                    }}
                 `;
                 doc.head.appendChild(style);
-            }
+            }}
 
-            const dateReNewline = /^([\\s\\S]*?)\\n(\\S.*)$/;
-            const dateReGlued = /^(.*\\S)\\s*(\\d{2}-\\d{2})$/;
+            function norm(t) {{ return (t || '').trim(); }}
 
-            function splitNode(el) {
-                if (!el || el.dataset.ddProcessed === 'true') return;
-                if (el.children.length > 0) return; // already has child markup, skip
-                const raw = el.textContent || '';
+            function addBadge(container, date) {{
+                if (!container || container.querySelector(':scope > .dd-opt-date')) return;
+                const badge = doc.createElement('span');
+                badge.className = 'dd-opt-date';
+                badge.setAttribute('dir', 'ltr');
+                badge.textContent = date;
+                container.appendChild(badge);
+            }}
 
-                let name, date;
-                let match = raw.match(dateReNewline);
-                if (match) {
-                    name = match[1].trim();
-                    date = match[2].trim();
-                } else {
-                    match = raw.match(dateReGlued);
-                    if (match) {
-                        name = match[1].trim();
-                        date = match[2].trim();
-                    }
-                }
-                if (!name || !date) return;
+            function styleOptionRow(el) {{
+                const date = window.__ddMap[norm(el.textContent)];
+                if (date) addBadge(el, date);
+            }}
 
-                el.textContent = '';
-                const nameSpan = doc.createElement('span');
-                nameSpan.className = 'dd-opt-name';
-                nameSpan.textContent = name;
+            function styleClosedInput(inputEl) {{
+                const date = window.__ddMap[norm(inputEl.value)];
+                const wrapper = inputEl.closest('[data-baseweb="select"]');
+                if (date && wrapper) addBadge(wrapper, date);
+            }}
 
-                const dateSpan = doc.createElement('span');
-                dateSpan.className = 'dd-opt-date';
-                dateSpan.setAttribute('dir', 'ltr');
-                dateSpan.textContent = date;
-
-                el.appendChild(nameSpan);
-                el.appendChild(dateSpan);
-                el.dataset.ddProcessed = 'true';
-            }
-
-            function scan() {
+            function scan() {{
                 ensureStyle();
-                const scope = doc.querySelectorAll('[data-baseweb="select"], [data-baseweb="popover"]');
-                scope.forEach(function(root) {
-                    root.querySelectorAll('*').forEach(function(el) {
-                        if (el.children.length === 0) splitNode(el);
-                    });
-                });
-            }
+                doc.querySelectorAll('li[role="option"], div[role="option"]').forEach(styleOptionRow);
+                doc.querySelectorAll('[data-baseweb="select"] input').forEach(styleClosedInput);
+            }}
 
-            const observer = new MutationObserver(scan);
-            observer.observe(doc.body, { childList: true, subtree: true });
+            if (!window.__ddObserverInit) {{
+                window.__ddObserverInit = true;
+                const observer = new MutationObserver(scan);
+                observer.observe(doc.body, {{ childList: true, subtree: true, characterData: true }});
+            }}
             scan();
-        })();
+        }})();
         </script>
         """,
         height=0,
@@ -184,8 +154,6 @@ def create_factory_dropdown() -> Optional[str]:
 
 
 def create_company_dropdown(conn, factory_name: Optional[str] = None):
-    _inject_dropdown_styles()
-
     companies_df = fetch_companies(conn, factory_name=factory_name)
     if companies_df.empty or "اسم الشركة" not in companies_df.columns:
         message = "لا توجد شركات مطابقة للمصنع المحدد." if factory_name else "لا توجد شركات."
@@ -217,19 +185,20 @@ def create_company_dropdown(conn, factory_name: Optional[str] = None):
         st.info(f"لا توجد شركات تبدأ بـ «{query}»") if query else st.info("لا توجد شركات.")
         return None
 
+    data_map = {name: _normalize_last_edit(date) for name, date in filtered}
+    _inject_dropdown_styles(data_map)
+
     selected = st.selectbox(
         "اختر الشركة",
         options=filtered,
         index=0 if filtered else None,
-        format_func=lambda x: _format_option_label(x[0], x[1]),
+        format_func=lambda x: x[0],  # clean name only - date is injected separately
         key="company_select",
     )
     return selected[0]
 
 
 def create_project_dropdown(conn, company_name: str):
-    _inject_dropdown_styles()
-
     if not company_name:
         return None
     projects_df = fetch_projects_by_company(conn, company_name)
@@ -245,11 +214,14 @@ def create_project_dropdown(conn, company_name: str):
     if not options:
         return None
 
+    data_map = {name: _normalize_last_edit(date) for name, date in options}
+    _inject_dropdown_styles(data_map)
+
     selected = st.selectbox(
         "اختر المشروع",
         options=options,
         index=0,
-        format_func=lambda x: _format_option_label(x[0], x[1]),
+        format_func=lambda x: x[0],  # clean name only - date is injected separately
         placeholder="— اختر —",
         key="project_select",
     )
@@ -257,7 +229,6 @@ def create_project_dropdown(conn, company_name: str):
 
 
 def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:
-    # إضافة "تقرير مالي" كخيار جديد يفعّل عرض الـ Views
     display_to_key = {
         "تقرير مالي": "financial_report",
         "العقود": "contract",
@@ -265,7 +236,7 @@ def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:
         "المستخلصات": "invoice",
         "الشيكات / التحويلات": "checks",
         "مواد اوليه و مقاولين باطن": "supplier_costs",
-        "شهادة تامينات": "social_insurance_certificate",  # <-- note space: "شهادة تامينات"
+        "شهادة تامينات": "social_insurance_certificate",
     }
     options = [
         (display_name, key)
@@ -295,7 +266,6 @@ def create_date_range():
         d_from = st.date_input("من تاريخ", value=None, format="YYYY-MM-DD")
     with c2:
         d_to = st.date_input("إلى تاريخ", value=None, format="YYYY-MM-DD")
-    # إرجاع None لو لم يُحدد المستخدم
     d_from = pd.to_datetime(d_from).date() if d_from else None
     d_to = pd.to_datetime(d_to).date() if d_to else None
     return d_from, d_to
