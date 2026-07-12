@@ -216,18 +216,26 @@ def _inject_global_dropdown_polish():
             box-shadow: 0 0 0 3px rgba(255, 180, 84, 0.15) !important;
             border-color: rgba(255, 180, 84, 0.45) !important;
         }
-        div[data-baseweb="select"] [role="listbox"],
-        div[data-baseweb="popover"] ul {
+        ul[role="listbox"],
+        div[role="listbox"],
+        div[data-baseweb="popover"] ul,
+        div[data-baseweb="popover"] div[role="listbox"] {
             max-height: 280px !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
+            scrollbar-width: thin !important;
+            scrollbar-color: rgba(255, 207, 138, 0.45) transparent !important;
         }
-        div[data-baseweb="select"] [role="listbox"]::-webkit-scrollbar,
-        div[data-baseweb="popover"] ul::-webkit-scrollbar {
+        ul[role="listbox"]::-webkit-scrollbar,
+        div[role="listbox"]::-webkit-scrollbar,
+        div[data-baseweb="popover"] ul::-webkit-scrollbar,
+        div[data-baseweb="popover"] div[role="listbox"]::-webkit-scrollbar {
             width: 7px !important;
         }
-        div[data-baseweb="select"] [role="listbox"]::-webkit-scrollbar-thumb,
-        div[data-baseweb="popover"] ul::-webkit-scrollbar-thumb {
+        ul[role="listbox"]::-webkit-scrollbar-thumb,
+        div[role="listbox"]::-webkit-scrollbar-thumb,
+        div[data-baseweb="popover"] ul::-webkit-scrollbar-thumb,
+        div[data-baseweb="popover"] div[role="listbox"]::-webkit-scrollbar-thumb {
             background: rgba(255, 207, 138, 0.45) !important;
             border-radius: 999px !important;
         }
@@ -315,6 +323,9 @@ def create_company_dropdown(conn, factory_name: Optional[str] = None):
     rows = rows.sort_values("اسم الشركة", key=lambda s: s.str.lower())
     options = [(row["اسم الشركة"], row["آخر تعديل"]) for _, row in rows.iterrows()]
 
+    if not options:
+        return None
+
     query = st.text_input(
         "🔍 اكتب بداية اسم الشركة",
         value="",
@@ -380,6 +391,8 @@ def create_project_dropdown(conn, company_name: str):
 
 
 def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:
+    _inject_global_dropdown_polish()
+
     display_to_key = {
         "تقرير مالي": "financial_report",
         "العقد": "contract",
