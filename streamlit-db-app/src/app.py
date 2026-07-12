@@ -258,6 +258,14 @@ html, body{
   color: white !important;
 }
 
+[data-testid="stSidebar"] [data-testid="stSelectbox"] select,
+[data-testid="stSidebar"] [data-testid="stSelectbox"] option,
+[data-testid="stSidebar"] [data-testid="stSelectbox"] div[role="option"],
+[data-testid="stSidebar"] [data-testid="stSelectbox"] span {
+  font-size: 8px !important;
+  font-weight: 700 !important;
+}
+
 @media (max-width: 768px) {
   [data-testid="stSidebar"][aria-expanded="true"]{
     position: fixed !important;
