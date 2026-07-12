@@ -67,22 +67,32 @@ def _inject_dropdown_styles():
                     }
                     .dd-opt-date {
                         position: absolute;
-                        left: 10px;
-                        bottom: 4px;
+                        left: 8px;
+                        bottom: 2px;
                         font-weight: 800;
                         font-size: 6px;
                         letter-spacing: 0.2px;
                         color: #ffb454;
-                        background: rgba(255, 180, 84, 0.12);
+                        background: rgba(255, 180, 84, 0.14);
                         padding: 1px 5px;
                         border-radius: 4px;
                         direction: ltr;
                         unicode-bidi: isolate;
+                        z-index: 5;
+                        pointer-events: none;
                     }
+                    [data-baseweb="select"], [data-baseweb="select"] * ,
                     li[role="option"], div[role="option"] {
+                        overflow: visible !important;
+                        text-overflow: clip !important;
+                        white-space: normal !important;
+                    }
+                    li[role="option"], div[role="option"], [data-baseweb="select"] > div {
                         position: relative !important;
+                        min-height: 42px !important;
+                        height: auto !important;
                         padding-top: 8px !important;
-                        padding-bottom: 20px !important;
+                        padding-bottom: 18px !important;
                         border-radius: 8px !important;
                     }
                     li[role="option"]:hover, div[role="option"]:hover {
@@ -122,7 +132,12 @@ def _inject_dropdown_styles():
 
             function scan() {
                 ensureStyle();
-                doc.querySelectorAll('li[role="option"], div[role="option"]').forEach(splitNode);
+                const scope = doc.querySelectorAll('[data-baseweb="select"], [data-baseweb="popover"]');
+                scope.forEach(function(root) {
+                    root.querySelectorAll('*').forEach(function(el) {
+                        if (el.children.length === 0) splitNode(el);
+                    });
+                });
             }
 
             const observer = new MutationObserver(scan);
