@@ -1,5 +1,6 @@
 import re
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from typing import Optional, Tuple
 from db.connection import fetch_companies, fetch_projects_by_company, fetch_type_last_edit_dates
@@ -22,10 +23,9 @@ def _normalize_last_edit(value):
 
 def _format_option_label(name, last_edit):
     """
-    Returns the name on the first line and the last-edit date on a
-    second line (real newline). The CSS injected by
-    _inject_dropdown_styles() uses ::first-line to keep the name
-    looking normal while the date (2nd line) renders smaller & bold.
+    Returns the name and the last-edit date joined with a newline.
+    _inject_dropdown_styles() finds this "name\\ndate" pattern in the
+    rendered option and splits it into two separately-styled elements.
     """
     last_edit = _normalize_last_edit(last_edit)
     if not last_edit:
@@ -34,47 +34,99 @@ def _format_option_label(name, last_edit):
 
 
 def _inject_dropdown_styles():
-    """Injects the dropdown styling once per session."""
+    """
+    Splits each 'name\\ndate' option into two real DOM elements
+    (name / date) and styles them independently. This runs as JS
+    inside a components.html iframe but reaches into the parent
+    document (window.parent.document), so it works no matter what
+    internal markup BaseWeb/Streamlit uses for the option rows —
+    CSS pseudo-elements like ::first-line can silently fail if those
+    rows turn out to be flex containers, this approach doesn't rely
+    on that at all.
+    """
     if st.session_state.get("_dropdown_styles_injected"):
         return
     st.session_state["_dropdown_styles_injected"] = True
 
-    st.markdown(
+    components.html(
         """
-        <style>
-        /* Dropdown popover container */
-        div[data-baseweb="popover"] ul[role="listbox"] {
-            padding: 6px !important;
-        }
+        <script>
+        (function() {
+            const doc = window.parent.document;
 
-        /* Each option row */
-        div[data-baseweb="popover"] [role="option"] {
-            white-space: pre-line !important;
-            line-height: 1.55 !important;
-            font-weight: 700;
-            font-size: 0.72rem;
-            color: #9aa4b2;
-            border-radius: 8px !important;
-            padding: 8px 12px !important;
-            margin-bottom: 2px;
-            transition: background-color 0.15s ease, transform 0.15s ease;
-        }
+            function ensureStyle() {
+                if (doc.getElementById('dd-style')) return;
+                const style = doc.createElement('style');
+                style.id = 'dd-style';
+                style.textContent = `
+                    .dd-opt-name {
+                        display: block;
+                        font-weight: 500;
+                        font-size: 0.95rem;
+                        color: #f5f6f8;
+                    }
+                    .dd-opt-date {
+                        display: block;
+                        font-weight: 700;
+                        font-size: 9px;
+                        color: #9aa4b2;
+                        direction: ltr;
+                        unicode-bidi: isolate;
+                        text-align: right;
+                        margin-top: 2px;
+                    }
+                    li[role="option"], div[role="option"] {
+                        padding-top: 8px !important;
+                        padding-bottom: 8px !important;
+                        border-radius: 8px !important;
+                    }
+                    li[role="option"]:hover, div[role="option"]:hover {
+                        background-color: rgba(255,255,255,0.08) !important;
+                    }
+                `;
+                doc.head.appendChild(style);
+            }
 
-        /* First line = company/project name -> normal weight & size */
-        div[data-baseweb="popover"] [role="option"]::first-line {
-            font-weight: 500;
-            font-size: 0.95rem;
-            color: #f5f6f8;
-        }
+            const dateRe = /^([\\s\\S]*?)\\n(\\S.*)$/;
 
-        /* Hover / highlighted state */
-        div[data-baseweb="popover"] [role="option"]:hover,
-        div[data-baseweb="popover"] [role="option"][aria-selected="true"] {
-            background-color: rgba(255, 255, 255, 0.08) !important;
-        }
-        </style>
+            function splitNode(el) {
+                if (!el || el.dataset.ddProcessed === 'true') return;
+                if (el.children.length > 0) return; // already has child markup, skip
+                const raw = el.textContent || '';
+                const match = raw.match(dateRe);
+                if (!match) return;
+
+                const name = match[1].trim();
+                const date = match[2].trim();
+                if (!name || !date) return;
+
+                el.textContent = '';
+                const nameSpan = doc.createElement('span');
+                nameSpan.className = 'dd-opt-name';
+                nameSpan.textContent = name;
+
+                const dateSpan = doc.createElement('span');
+                dateSpan.className = 'dd-opt-date';
+                dateSpan.setAttribute('dir', 'ltr');
+                dateSpan.textContent = date;
+
+                el.appendChild(nameSpan);
+                el.appendChild(dateSpan);
+                el.dataset.ddProcessed = 'true';
+            }
+
+            function scan() {
+                ensureStyle();
+                doc.querySelectorAll('li[role="option"], div[role="option"]').forEach(splitNode);
+            }
+
+            const observer = new MutationObserver(scan);
+            observer.observe(doc.body, { childList: true, subtree: true });
+            scan();
+        })();
+        </script>
         """,
-        unsafe_allow_html=True,
+        height=0,
     )
 
 
@@ -172,9 +224,9 @@ def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:
     display_to_key = {
         "تقرير مالي": "financial_report",
         "العقود": "contract",
-        "خطابات ضمان/شيكات ضمان": "guarantee",
+        "خطابات و شيكات ضمان": "guarantee",
         "المستخلصات": "invoice",
-        "الشيكات / التحويلات": "checks",
+        "الشيكات و التحويلات": "checks",
         "مواد اوليه و مقاولين باطن": "supplier_costs",
         "شهادة تامينات": "social_insurance_certificate",  # <-- note space: "شهادة تامينات"
     }
