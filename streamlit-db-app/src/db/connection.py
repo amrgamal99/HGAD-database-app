@@ -228,7 +228,6 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
                 cols_present = [c for c in desired_cols if c in df.columns]
                 df = df[cols_present] if cols_present else df
         else:
-            st.error("نوع البيانات غير صالح.")
             return pd.DataFrame()
 
         if tbl != "supplier_costs":
