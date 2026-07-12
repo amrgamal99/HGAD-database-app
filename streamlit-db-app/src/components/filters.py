@@ -17,7 +17,25 @@ def _normalize_last_edit(value):
         parsed = pd.to_datetime(text, errors="coerce")
         if pd.isna(parsed):
             return text
-        return parsed.strftime("%d-%m-%y")
+        return parsed.strftime("%d-%m")
+    except Exception:
+        return text
+
+
+def _normalize_last_edit_full(value):
+    """Same as _normalize_last_edit but keeps the full year (DD-MM-YYYY),
+    used for the 'اخر تعديل' caption shown under a dropdown after a
+    selection is made."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "nat"}:
+        return None
+    try:
+        parsed = pd.to_datetime(text, errors="coerce")
+        if pd.isna(parsed):
+            return text
+        return parsed.strftime("%d-%m-%Y")
     except Exception:
         return text
 
@@ -173,6 +191,83 @@ def _inject_dropdown_styles(data_map: dict):
     )
 
 
+def _inject_global_dropdown_polish():
+    """One-time page-level CSS (not the popover styling above): makes the
+    'اختر الشركة' / 'اختر المشروع' widget labels small+bold, and defines
+    the '.dd-lastedit-*' classes used by _render_last_edit_caption."""
+    if st.session_state.get("_dd_global_polish_injected"):
+        return
+    st.session_state["_dd_global_polish_injected"] = True
+
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stWidgetLabel"] p {
+            font-size: 12.5px !important;
+            font-weight: 700 !important;
+            color: #c7cbd4 !important;
+            letter-spacing: 0.15px !important;
+        }
+        div[data-baseweb="select"] > div {
+            border-radius: 10px !important;
+            transition: box-shadow 160ms ease, border-color 160ms ease !important;
+        }
+        div[data-baseweb="select"]:focus-within > div {
+            box-shadow: 0 0 0 3px rgba(255, 180, 84, 0.15) !important;
+            border-color: rgba(255, 180, 84, 0.45) !important;
+        }
+        .dd-lastedit-wrap {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 6px;
+            margin-top: 4px;
+            margin-bottom: 2px;
+            direction: rtl;
+            animation: dd-fade-in 180ms ease;
+        }
+        .dd-lastedit-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #9aa0ab;
+        }
+        .dd-lastedit-date {
+            font-size: 11px;
+            font-weight: 800;
+            color: #ffcf8a;
+            background: linear-gradient(135deg, rgba(255,180,84,0.20), rgba(255,150,60,0.08));
+            border: 1px solid rgba(255, 180, 84, 0.28);
+            padding: 2px 9px;
+            border-radius: 999px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.20);
+            direction: ltr;
+            unicode-bidi: isolate;
+        }
+        @keyframes dd-fade-in {
+            from { opacity: 0; transform: translateY(-2px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_last_edit_caption(date_full: Optional[str]):
+    """Small bold 'اخر تعديل: DD-MM-YYYY' line placed right under a dropdown."""
+    if not date_full:
+        return
+    st.markdown(
+        f"""
+        <div class="dd-lastedit-wrap">
+            <span class="dd-lastedit-label">اخر تعديل:</span>
+            <span class="dd-lastedit-date">{date_full}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def create_factory_dropdown() -> Optional[str]:
     display_to_factory = {
         "الكل": None,
@@ -190,6 +285,8 @@ def create_factory_dropdown() -> Optional[str]:
 
 
 def create_company_dropdown(conn, factory_name: Optional[str] = None):
+    _inject_global_dropdown_polish()
+
     companies_df = fetch_companies(conn, factory_name=factory_name)
     if companies_df.empty or "اسم الشركة" not in companies_df.columns:
         message = "لا توجد شركات مطابقة للمصنع المحدد." if factory_name else "لا توجد شركات."
@@ -222,6 +319,7 @@ def create_company_dropdown(conn, factory_name: Optional[str] = None):
         return None
 
     data_map = {name: _normalize_last_edit(date) for name, date in filtered}
+    full_date_map = {name: _normalize_last_edit_full(date) for name, date in filtered}
     _inject_dropdown_styles(data_map)
 
     selected = st.selectbox(
@@ -231,10 +329,13 @@ def create_company_dropdown(conn, factory_name: Optional[str] = None):
         format_func=lambda x: x[0],  # clean name only - date is injected separately
         key="company_select",
     )
+    _render_last_edit_caption(full_date_map.get(selected[0]))
     return selected[0]
 
 
 def create_project_dropdown(conn, company_name: str):
+    _inject_global_dropdown_polish()
+
     if not company_name:
         return None
     projects_df = fetch_projects_by_company(conn, company_name)
@@ -251,6 +352,7 @@ def create_project_dropdown(conn, company_name: str):
         return None
 
     data_map = {name: _normalize_last_edit(date) for name, date in options}
+    full_date_map = {name: _normalize_last_edit_full(date) for name, date in options}
     _inject_dropdown_styles(data_map)
 
     selected = st.selectbox(
@@ -261,6 +363,7 @@ def create_project_dropdown(conn, company_name: str):
         placeholder="— اختر —",
         key="project_select",
     )
+    _render_last_edit_caption(full_date_map.get(selected[0]))
     return selected[0]
 
 
