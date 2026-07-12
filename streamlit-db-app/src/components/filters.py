@@ -219,8 +219,10 @@ def _inject_global_dropdown_polish():
         ul[role="listbox"],
         div[role="listbox"],
         div[data-baseweb="popover"] ul,
-        div[data-baseweb="popover"] div[role="listbox"] {
+        div[data-baseweb="popover"] div[role="listbox"],
+        div[data-baseweb="popover"] {
             max-height: 280px !important;
+            min-height: 0 !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             scrollbar-width: thin !important;
@@ -404,12 +406,13 @@ def create_type_dropdown(conn, company_name: Optional[str] = None, project_name:
     }
 
     if company_name and project_name:
-        available_options = []
+        options = [("تقرير مالي", "financial_report")]
         for display_name, key in display_to_key.items():
+            if key == "financial_report":
+                continue
             df = fetch_data(conn, company_name, project_name, key)
             if not df.empty:
-                available_options.append((display_name, key))
-        options = available_options
+                options.append((display_name, key))
     else:
         options = []
 
