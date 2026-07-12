@@ -62,20 +62,24 @@ def _inject_dropdown_styles():
                     .dd-opt-name {
                         display: block;
                         font-weight: 500;
-                        font-size: 0.95rem;
+                        font-size: 1rem;
                         color: #f5f6f8;
+                        text-align: right;
+                        direction: rtl;
+                        margin-bottom: 4px;
+                        line-height: 1.2;
                     }
                     .dd-opt-date {
                         position: absolute;
-                        left: 8px;
-                        bottom: 2px;
+                        left: 10px;
+                        bottom: 8px;
                         font-weight: 800;
-                        font-size: 6px;
+                        font-size: 9px;
                         letter-spacing: 0.2px;
                         color: #ffb454;
                         background: rgba(255, 180, 84, 0.14);
-                        padding: 1px 5px;
-                        border-radius: 4px;
+                        padding: 2px 6px;
+                        border-radius: 5px;
                         direction: ltr;
                         unicode-bidi: isolate;
                         z-index: 5;
@@ -89,14 +93,18 @@ def _inject_dropdown_styles():
                     }
                     li[role="option"], div[role="option"], [data-baseweb="select"] > div {
                         position: relative !important;
-                        min-height: 42px !important;
+                        min-height: 52px !important;
                         height: auto !important;
-                        padding-top: 8px !important;
+                        padding-top: 10px !important;
                         padding-bottom: 18px !important;
                         border-radius: 8px !important;
                     }
                     li[role="option"]:hover, div[role="option"]:hover {
                         background-color: rgba(255,255,255,0.08) !important;
+                    }
+                    [data-baseweb="select"] > div::after,
+                    [data-baseweb="select"] > div::before {
+                        display: none !important;
                     }
                 `;
                 doc.head.appendChild(style);
