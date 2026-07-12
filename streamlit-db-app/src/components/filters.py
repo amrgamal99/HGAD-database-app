@@ -26,16 +26,12 @@ def _contains_arabic(text: str) -> bool:
 
 def _format_option_label(name, last_edit):
     last_edit = _normalize_last_edit(last_edit)
-    return name
-
-
-def _render_last_edit_label(last_edit):
     if not last_edit:
-        return
-    st.markdown(
-        f'<div class="last-edit-note">{last_edit}</div>',
-        unsafe_allow_html=True,
-    )
+        return name
+
+    if _contains_arabic(name):
+        return f"\u202B{name}\u202C\u2028\u202A{last_edit}\u202C"
+    return f"{name}\u2028{last_edit}"
 
 
 def create_factory_dropdown() -> Optional[str]:
@@ -86,8 +82,6 @@ def create_company_dropdown(conn, factory_name: Optional[str] = None):
         format_func=lambda x: _format_option_label(x[0], x[1]),
         key="company_select",
     )
-    if selected and selected[1]:
-        _render_last_edit_label(selected[1])
     return selected[0]
 
 def create_project_dropdown(conn, company_name: str):
@@ -113,8 +107,6 @@ def create_project_dropdown(conn, company_name: str):
         format_func=lambda x: _format_option_label(x[0], x[1]),
         placeholder="— اختر —",
     )
-    if selected and selected[1]:
-        _render_last_edit_label(selected[1])
     return selected[0]
 
 def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:

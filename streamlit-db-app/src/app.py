@@ -272,6 +272,10 @@ html, body{
 [data-testid="stSidebar"] [data-testid="stSelectbox"] span {
   font-size: 8px !important;
   font-weight: 700 !important;
+  white-space: pre-wrap !important;
+  line-height: 1.1 !important;
+  text-align: right !important;
+  direction: rtl !important;
 }
 
 @media (max-width: 768px) {
