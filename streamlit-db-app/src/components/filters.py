@@ -16,7 +16,7 @@ def _normalize_last_edit(value):
         parsed = pd.to_datetime(text, errors="coerce")
         if pd.isna(parsed):
             return text
-        return parsed.strftime("%d-%m-%Y")
+        return parsed.strftime("%d-%m")
     except Exception:
         return text
 
@@ -66,14 +66,17 @@ def _inject_dropdown_styles():
                         color: #f5f6f8;
                     }
                     .dd-opt-date {
-                        display: block;
-                        font-weight: 700;
-                        font-size: 9px;
-                        color: #9aa4b2;
+                        display: inline-block;
+                        font-weight: 800;
+                        font-size: 7px;
+                        letter-spacing: 0.2px;
+                        color: #ffb454;
+                        background: rgba(255, 180, 84, 0.12);
+                        padding: 1px 5px;
+                        border-radius: 4px;
                         direction: ltr;
                         unicode-bidi: isolate;
-                        text-align: right;
-                        margin-top: 2px;
+                        margin-top: 3px;
                     }
                     li[role="option"], div[role="option"] {
                         padding-top: 8px !important;
@@ -224,9 +227,9 @@ def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:
     display_to_key = {
         "تقرير مالي": "financial_report",
         "العقود": "contract",
-        "خطابات و شيكات ضمان": "guarantee",
+        "خطابات الضمان": "guarantee",
         "المستخلصات": "invoice",
-        "الشيكات و التحويلات": "checks",
+        "الشيكات / التحويلات": "checks",
         "مواد اوليه و مقاولين باطن": "supplier_costs",
         "شهادة تامينات": "social_insurance_certificate",  # <-- note space: "شهادة تامينات"
     }
