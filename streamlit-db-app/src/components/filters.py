@@ -216,6 +216,21 @@ def _inject_global_dropdown_polish():
             box-shadow: 0 0 0 3px rgba(255, 180, 84, 0.15) !important;
             border-color: rgba(255, 180, 84, 0.45) !important;
         }
+        div[data-baseweb="select"] [role="listbox"],
+        div[data-baseweb="popover"] ul {
+            max-height: 280px !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+        }
+        div[data-baseweb="select"] [role="listbox"]::-webkit-scrollbar,
+        div[data-baseweb="popover"] ul::-webkit-scrollbar {
+            width: 7px !important;
+        }
+        div[data-baseweb="select"] [role="listbox"]::-webkit-scrollbar-thumb,
+        div[data-baseweb="popover"] ul::-webkit-scrollbar-thumb {
+            background: rgba(255, 207, 138, 0.45) !important;
+            border-radius: 999px !important;
+        }
         .dd-lastedit-wrap {
             display: flex;
             justify-content: flex-end;
@@ -289,8 +304,6 @@ def create_company_dropdown(conn, factory_name: Optional[str] = None):
 
     companies_df = fetch_companies(conn, factory_name=factory_name)
     if companies_df.empty or "اسم الشركة" not in companies_df.columns:
-        message = "لا توجد شركات مطابقة للمصنع المحدد." if factory_name else "لا توجد شركات."
-        st.info(message)
         return None
 
     companies_df = companies_df.copy()
@@ -315,7 +328,6 @@ def create_company_dropdown(conn, factory_name: Optional[str] = None):
         filtered = options
 
     if not filtered:
-        st.info(f"لا توجد شركات تبدأ بـ «{query}»") if query else st.info("لا توجد شركات.")
         return None
 
     data_map = {name: _normalize_last_edit(date) for name, date in filtered}
@@ -370,12 +382,12 @@ def create_project_dropdown(conn, company_name: str):
 def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:
     display_to_key = {
         "تقرير مالي": "financial_report",
-        "العقود": "contract",
-        "خطابات الضمان": "guarantee",
+        "العقد": "contract",
+        "خطابات و شيكات ضمان": "guarantee",
         "المستخلصات": "invoice",
-        "الشيكات / التحويلات": "checks",
+        "الشيكات و التحويلات": "checks",
         "مواد اوليه و مقاولين باطن": "supplier_costs",
-        "شهادة تامينات": "social_insurance_certificate",
+        "شهادات تامينات": "social_insurance_certificate",
     }
     options = [
         (display_name, key)
