@@ -1230,7 +1230,7 @@ def main() -> None:
         factory_name = create_factory_dropdown()
         company_name = create_company_dropdown(conn, factory_name=factory_name)
         project_name = create_project_dropdown(conn, company_name)
-        type_label, type_key = create_type_dropdown(conn)
+        type_label, type_key = create_type_dropdown(conn, company_name, project_name)
 
         st.markdown("---")
         search_clicked = st.button("🔍 بحث", key="sidebar_search_btn", use_container_width=True)
@@ -1261,8 +1261,12 @@ def main() -> None:
                 width=0,
             )
 
-    if not company_name or not project_name or not type_key:
-        st.info("برجاء اختيار الشركة والمشروع ونوع البيانات من الشريط الجانبي لعرض النتائج.")
+    if not company_name or not project_name:
+        st.info("برجاء اختيار الشركة والمشروع من الشريط الجانبي لعرض النتائج.")
+        return
+
+    if not type_key:
+        st.info("لا توجد أنواع بيانات متاحة للشركة والمشروع المحددين.")
         return
 
     # Global date filters

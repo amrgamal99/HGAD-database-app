@@ -4,7 +4,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 from typing import Optional, Tuple
-from db.connection import fetch_companies, fetch_projects_by_company, fetch_type_last_edit_dates
+from db.connection import fetch_companies, fetch_projects_by_company, fetch_data
 
 
 def _normalize_last_edit(value):
@@ -390,7 +390,7 @@ def create_project_dropdown(conn, company_name: str):
     return selected[0]
 
 
-def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:
+def create_type_dropdown(conn, company_name: Optional[str] = None, project_name: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
     _inject_global_dropdown_polish()
 
     display_to_key = {
@@ -402,14 +402,24 @@ def create_type_dropdown(conn) -> Tuple[Optional[str], Optional[str]]:
         "مواد اوليه و مقاولين باطن": "supplier_costs",
         "شهادات تامينات": "social_insurance_certificate",
     }
-    options = [
-        (display_name, key)
-        for display_name, key in display_to_key.items()
-    ]
+
+    if company_name and project_name:
+        available_options = []
+        for display_name, key in display_to_key.items():
+            df = fetch_data(conn, company_name, project_name, key)
+            if not df.empty:
+                available_options.append((display_name, key))
+        options = available_options
+    else:
+        options = []
+
+    if not options:
+        return None, None
+
     selected = st.selectbox(
         "اختر نوع البيانات",
         options=options,
-        index=0 if options else None,
+        index=0,
         format_func=lambda x: x[0],
         key="type_select",
     )
