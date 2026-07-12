@@ -110,17 +110,26 @@ def _inject_dropdown_styles():
                 doc.head.appendChild(style);
             }
 
-            const dateRe = /^([\\s\\S]*?)\\n(\\S.*)$/;
+            const dateReNewline = /^([\\s\\S]*?)\\n(\\S.*)$/;
+            const dateReGlued = /^(.*\\S)\\s*(\\d{2}-\\d{2})$/;
 
             function splitNode(el) {
                 if (!el || el.dataset.ddProcessed === 'true') return;
                 if (el.children.length > 0) return; // already has child markup, skip
                 const raw = el.textContent || '';
-                const match = raw.match(dateRe);
-                if (!match) return;
 
-                const name = match[1].trim();
-                const date = match[2].trim();
+                let name, date;
+                let match = raw.match(dateReNewline);
+                if (match) {
+                    name = match[1].trim();
+                    date = match[2].trim();
+                } else {
+                    match = raw.match(dateReGlued);
+                    if (match) {
+                        name = match[1].trim();
+                        date = match[2].trim();
+                    }
+                }
                 if (!name || !date) return;
 
                 el.textContent = '';
