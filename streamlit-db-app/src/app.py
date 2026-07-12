@@ -258,6 +258,14 @@ html, body{
   color: white !important;
 }
 
+.last-edit-note {
+  font-size: 8px !important;
+  font-weight: 700 !important;
+  color: #9fb2d9 !important;
+  margin: 4px 0 8px 0 !important;
+  line-height: 1.1 !important;
+}
+
 [data-testid="stSidebar"] [data-testid="stSelectbox"] select,
 [data-testid="stSidebar"] [data-testid="stSelectbox"] option,
 [data-testid="stSidebar"] [data-testid="stSelectbox"] div[role="option"],
