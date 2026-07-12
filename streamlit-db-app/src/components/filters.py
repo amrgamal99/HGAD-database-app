@@ -66,9 +66,11 @@ def _inject_dropdown_styles():
                         color: #f5f6f8;
                     }
                     .dd-opt-date {
-                        display: inline-block;
+                        position: absolute;
+                        left: 10px;
+                        bottom: 4px;
                         font-weight: 800;
-                        font-size: 7px;
+                        font-size: 6px;
                         letter-spacing: 0.2px;
                         color: #ffb454;
                         background: rgba(255, 180, 84, 0.12);
@@ -76,11 +78,11 @@ def _inject_dropdown_styles():
                         border-radius: 4px;
                         direction: ltr;
                         unicode-bidi: isolate;
-                        margin-top: 3px;
                     }
                     li[role="option"], div[role="option"] {
+                        position: relative !important;
                         padding-top: 8px !important;
-                        padding-bottom: 8px !important;
+                        padding-bottom: 20px !important;
                         border-radius: 8px !important;
                     }
                     li[role="option"]:hover, div[role="option"]:hover {
