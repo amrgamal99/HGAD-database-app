@@ -17,7 +17,7 @@ def _normalize_last_edit(value):
         parsed = pd.to_datetime(text, errors="coerce")
         if pd.isna(parsed):
             return text
-        return parsed.strftime("%d-%m")
+        return parsed.strftime("%d-%m-%y")
     except Exception:
         return text
 
@@ -50,6 +50,9 @@ def _inject_dropdown_styles(data_map: dict):
                 const style = doc.createElement('style');
                 style.id = 'dd-style';
                 style.textContent = `
+                    ul[role="listbox"], div[data-baseweb="popover"] ul {{
+                        padding: 6px !important;
+                    }}
                     li[role="option"], div[role="option"] {{
                         position: relative !important;
                         overflow: visible !important;
@@ -57,40 +60,73 @@ def _inject_dropdown_styles(data_map: dict):
                         white-space: normal !important;
                         text-align: right !important;
                         direction: rtl !important;
-                        font-weight: 500 !important;
-                        font-size: 1rem !important;
-                        color: #f5f6f8 !important;
-                        min-height: 52px !important;
+                        font-weight: 600 !important;
+                        font-size: 0.98rem !important;
+                        letter-spacing: 0.1px !important;
+                        color: #eef0f4 !important;
+                        min-height: 50px !important;
                         height: auto !important;
-                        padding-top: 10px !important;
-                        padding-bottom: 18px !important;
-                        border-radius: 8px !important;
+                        padding: 12px 14px 16px 14px !important;
+                        margin: 2px 0 !important;
+                        border-radius: 10px !important;
+                        border: 1px solid transparent !important;
+                        transition: background-color 160ms ease, border-color 160ms ease, transform 120ms ease !important;
+                    }}
+                    li[role="option"]:not(:last-child), div[role="option"]:not(:last-child) {{
+                        border-bottom: 1px solid rgba(255,255,255,0.05) !important;
                     }}
                     li[role="option"]:hover, div[role="option"]:hover {{
-                        background-color: rgba(255,255,255,0.08) !important;
+                        background-color: rgba(255,255,255,0.07) !important;
+                        border-color: rgba(255,255,255,0.08) !important;
+                        transform: translateX(-1px) !important;
+                    }}
+                    li[role="option"][aria-selected="true"], div[role="option"][aria-selected="true"] {{
+                        background-color: rgba(255, 180, 84, 0.10) !important;
+                        border-color: rgba(255, 180, 84, 0.25) !important;
                     }}
                     [data-baseweb="select"] {{
                         position: relative !important;
+                    }}
+                    [data-baseweb="select"] > div {{
+                        transition: box-shadow 160ms ease, border-color 160ms ease !important;
                     }}
                     .dd-opt-date {{
                         position: absolute;
                         left: 10px;
                         bottom: 8px;
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 3px;
                         font-weight: 800;
-                        font-size: 9px;
-                        letter-spacing: 0.2px;
-                        color: #ffb454;
-                        background: rgba(255, 180, 84, 0.14);
-                        padding: 2px 6px;
-                        border-radius: 5px;
+                        font-size: 9.5px;
+                        letter-spacing: 0.3px;
+                        color: #ffcf8a;
+                        background: linear-gradient(135deg, rgba(255,180,84,0.22), rgba(255,150,60,0.10));
+                        border: 1px solid rgba(255, 180, 84, 0.30);
+                        padding: 3px 7px;
+                        border-radius: 999px;
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.05);
                         direction: ltr;
                         unicode-bidi: isolate;
                         z-index: 5;
                         pointer-events: none;
+                        transition: transform 160ms ease, box-shadow 160ms ease;
+                    }}
+                    .dd-opt-date::before {{
+                        content: '';
+                        width: 4px;
+                        height: 4px;
+                        border-radius: 50%;
+                        background: #ffb454;
+                        box-shadow: 0 0 4px rgba(255,180,84,0.8);
+                        flex-shrink: 0;
+                    }}
+                    li[role="option"]:hover .dd-opt-date, div[role="option"]:hover .dd-opt-date {{
+                        transform: scale(1.04);
                     }}
                     [data-baseweb="select"] > div > .dd-opt-date {{
-                        bottom: 6px;
-                        left: 8px;
+                        bottom: 7px;
+                        left: 9px;
                     }}
                 `;
                 doc.head.appendChild(style);
