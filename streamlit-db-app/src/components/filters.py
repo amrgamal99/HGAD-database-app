@@ -82,9 +82,9 @@ def _inject_dropdown_styles(data_map: dict):
                         font-size: 0.98rem !important;
                         letter-spacing: 0.1px !important;
                         color: #eef0f4 !important;
-                        min-height: 50px !important;
+                        min-height: 44px !important;
                         height: auto !important;
-                        padding: 12px 14px 16px 14px !important;
+                        padding: 10px 14px 14px 14px !important;
                         margin: 2px 0 !important;
                         border-radius: 10px !important;
                         border: 1px solid transparent !important;
@@ -110,20 +110,20 @@ def _inject_dropdown_styles(data_map: dict):
                     }}
                     .dd-opt-date {{
                         position: absolute;
-                        left: 10px;
-                        bottom: 8px;
+                        left: 8px;
+                        bottom: 6px;
                         display: inline-flex;
                         align-items: center;
-                        gap: 3px;
+                        gap: 2px;
                         font-weight: 800;
-                        font-size: 9.5px;
-                        letter-spacing: 0.3px;
+                        font-size: 8px;
+                        letter-spacing: 0.2px;
                         color: #ffcf8a;
                         background: linear-gradient(135deg, rgba(255,180,84,0.22), rgba(255,150,60,0.10));
                         border: 1px solid rgba(255, 180, 84, 0.30);
-                        padding: 3px 7px;
+                        padding: 1.5px 5px;
                         border-radius: 999px;
-                        box-shadow: 0 1px 3px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.05);
+                        box-shadow: 0 1px 2px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.05);
                         direction: ltr;
                         unicode-bidi: isolate;
                         z-index: 5;
@@ -132,19 +132,19 @@ def _inject_dropdown_styles(data_map: dict):
                     }}
                     .dd-opt-date::before {{
                         content: '';
-                        width: 4px;
-                        height: 4px;
+                        width: 3px;
+                        height: 3px;
                         border-radius: 50%;
                         background: #ffb454;
-                        box-shadow: 0 0 4px rgba(255,180,84,0.8);
+                        box-shadow: 0 0 3px rgba(255,180,84,0.8);
                         flex-shrink: 0;
                     }}
                     li[role="option"]:hover .dd-opt-date, div[role="option"]:hover .dd-opt-date {{
                         transform: scale(1.04);
                     }}
                     [data-baseweb="select"] > div > .dd-opt-date {{
-                        bottom: 7px;
-                        left: 9px;
+                        bottom: 6px;
+                        left: 8px;
                     }}
                 `;
                 doc.head.appendChild(style);
