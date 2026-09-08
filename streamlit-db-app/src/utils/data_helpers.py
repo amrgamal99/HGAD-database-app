@@ -67,6 +67,16 @@ def prepare_contract_values_dataframe(raw_df: pd.DataFrame, date_from=None, date
             lambda value: value.get("companyname") if isinstance(value, dict) else None
         )
 
+    if "اسم المصنع" in df.columns and "factoryname" in df.columns:
+        df["factoryname"] = df["factoryname"].combine_first(df["اسم المصنع"])
+    if "اسم الشركة" in df.columns and "companyname" in df.columns:
+        df["companyname"] = df["companyname"].combine_first(df["اسم الشركة"])
+
+    if "اسم المصنع" in df.columns and "factoryname" not in df.columns:
+        df["factoryname"] = df["اسم المصنع"]
+    if "اسم الشركة" in df.columns and "companyname" not in df.columns:
+        df["companyname"] = df["اسم الشركة"]
+
     for col in [
         "factoryname",
         "companyname",
@@ -136,6 +146,10 @@ def build_contract_value_details(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     work = df.copy()
+    if "factoryname" not in work.columns and "اسم المصنع" in work.columns:
+        work["factoryname"] = work["اسم المصنع"]
+    if "companyname" not in work.columns and "اسم الشركة" in work.columns:
+        work["companyname"] = work["اسم الشركة"]
     if "factoryname" not in work.columns:
         work["factoryname"] = None
     if "companyname" not in work.columns:
