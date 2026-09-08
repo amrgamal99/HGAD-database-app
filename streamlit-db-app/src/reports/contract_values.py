@@ -15,6 +15,53 @@ from utils.data_helpers import (
 )
 
 
+def _theme_html_table(df: pd.DataFrame) -> str:
+    if df is None or df.empty:
+        return ""
+    style = """
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            direction: rtl;
+            font-family: 'Cairo', 'Segoe UI', sans-serif;
+            background: #0b1220;
+            color: #e5e7eb;
+            border: 1px solid #243248;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        th {
+            background: linear-gradient(135deg, #16263f, #10213a);
+            color: #f8fafc;
+            font-weight: 800;
+            text-align: right;
+            padding: 10px 12px;
+            border-bottom: 1px solid #2b3d5c;
+        }
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+            background: rgba(15, 23, 42, 0.92);
+            text-align: right;
+            vertical-align: top;
+        }
+        tr:hover td {
+            background: rgba(37, 99, 235, 0.08);
+        }
+        a {
+            color: #7dd3fc;
+            text-decoration: none;
+            font-weight: 700;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+    """
+    return style + df.to_html(index=False, escape=False, border=0, justify="right")
+
+
 def _excel_bytes(df: pd.DataFrame) -> bytes:
     buffer = BytesIO()
     try:
@@ -24,7 +71,31 @@ def _excel_bytes(df: pd.DataFrame) -> bytes:
         engine = "openpyxl"
 
     with pd.ExcelWriter(buffer, engine=engine) as writer:
-        df.to_excel(writer, index=False, sheet_name="حصر_القيمة")
+        ws = writer.book.add_worksheet("حصر_القيمة")
+        header_format = writer.book.add_format({
+            "bold": True,
+            "text_wrap": True,
+            "valign": "vcenter",
+            "align": "center",
+            "bg_color": "#10213a",
+            "font_color": "#f8fafc",
+            "border": 1,
+        })
+        cell_format = writer.book.add_format({
+            "align": "right",
+            "valign": "vcenter",
+            "border": 1,
+            "bg_color": "#0f172a",
+            "font_color": "#e2e8f0",
+        })
+
+        for col_idx, col_name in enumerate(df.columns):
+            ws.write(0, col_idx, str(col_name), header_format)
+            ws.set_column(col_idx, col_idx, 24)
+
+        for row_idx, row in enumerate(df.fillna("").astype(str).itertuples(index=False, name=None), start=1):
+            for col_idx, value in enumerate(row):
+                ws.write(row_idx, col_idx, str(value), cell_format)
 
     return buffer.getvalue()
 
@@ -38,19 +109,26 @@ def _pdf_bytes(df: pd.DataFrame) -> bytes:
     table_data = [list(df.columns)] + df.fillna("").astype(str).values.tolist()
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), title="حصر قيمة العقود")
-    style = ParagraphStyle("ArabicTitle", fontName="Helvetica", fontSize=16, alignment=1, textColor=colors.HexColor("#1f2937"))
+    style = ParagraphStyle(
+        "ArabicTitle",
+        fontName="Helvetica",
+        fontSize=16,
+        alignment=1,
+        textColor=colors.HexColor("#e5e7eb"),
+        backColor=colors.HexColor("#0b1220"),
+    )
     story = [Paragraph("حصر قيمة العقود", style), Spacer(1, 14)]
     table = Table(table_data, repeatRows=1)
     table.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#16263f")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#2b3d5c")),
                 ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#0f172a"), colors.HexColor("#111827")]),
                 ("FONTSIZE", (0, 0), (-1, -1), 7),
             ]
         )
@@ -127,19 +205,18 @@ def _render_table(df: pd.DataFrame, title: str) -> None:
     if "رابط نسخة العقد" in df.columns:
         display_df = df.copy()
         display_df["رابط نسخة العقد"] = display_df["رابط نسخة العقد"].map(_link_anchor)
-        st.markdown(
-            display_df.to_html(index=False, escape=False, border=0, justify="right"),
-            unsafe_allow_html=True,
-        )
+        st.markdown(_theme_html_table(display_df), unsafe_allow_html=True)
         return
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.markdown(_theme_html_table(df), unsafe_allow_html=True)
 
 
 def render_contract_values_report(
     conn: Optional[Client],
     company_name: Optional[str] = None,
     project_name: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
 ) -> None:
     """Render the contract values report within the financial reports mode."""
     st.markdown("<h2 style='text-align:right'>حصر قيمة العقود</h2>", unsafe_allow_html=True)
@@ -148,14 +225,18 @@ def render_contract_values_report(
         st.error("تعذر الاتصال بقاعدة البيانات.")
         return
 
-    c1, c2 = st.columns(2)
-    with c1:
-        date_from = st.date_input("من تاريخ", value=None, key="contract_values_from", format="YYYY-MM-DD")
-    with c2:
-        date_to = st.date_input("إلى تاريخ", value=None, key="contract_values_to", format="YYYY-MM-DD")
+    date_from_value = date_from.isoformat() if isinstance(date_from, pd.Timestamp) else date_from
+    date_to_value = date_to.isoformat() if isinstance(date_to, pd.Timestamp) else date_to
 
-    date_from_value = date_from.isoformat() if date_from else None
-    date_to_value = date_to.isoformat() if date_to else None
+    if isinstance(date_from, str) and date_from:
+        date_from_value = date_from
+    if isinstance(date_to, str) and date_to:
+        date_to_value = date_to
+
+    if date_from is not None and not isinstance(date_from, (str, pd.Timestamp)):
+        date_from_value = date_from.isoformat() if hasattr(date_from, "isoformat") else None
+    if date_to is not None and not isinstance(date_to, (str, pd.Timestamp)):
+        date_to_value = date_to.isoformat() if hasattr(date_to, "isoformat") else None
 
     try:
         df = fetch_contract_value_report_data(

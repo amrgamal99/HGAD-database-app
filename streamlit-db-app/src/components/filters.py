@@ -311,7 +311,6 @@ def create_financial_report_selector() -> str:
     """Choose which financial report to display inside the financial-mode branch."""
     options = [
         ("حصر قيمة العقود", "contract_values"),
-        ("تقرير مالي", "financial_report"),
     ]
     selected = st.selectbox(
         "نوع التقرير المالي",
