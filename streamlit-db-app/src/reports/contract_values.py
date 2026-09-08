@@ -16,18 +16,22 @@ from utils.data_helpers import (
 
 @st.cache_data(show_spinner=False)
 def fetch_contract_value_report_data(
-    supabase: Client,
+    _supabase: Client,
     company_name: Optional[str] = None,
     project_name: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Fetch and normalize contract-value rows from the database."""
-    if supabase is None:
+    """Fetch and normalize contract-value rows from the database.
+
+    The leading underscore tells Streamlit not to hash the client object itself,
+    which is required because Supabase client instances are not hashable.
+    """
+    if _supabase is None:
         return pd.DataFrame()
 
     try:
-        raw_df = fetch_data(supabase, company_name or "", project_name or "", "contract")
+        raw_df = fetch_data(_supabase, company_name or "", project_name or "", "contract")
     except Exception:
         return pd.DataFrame()
 
