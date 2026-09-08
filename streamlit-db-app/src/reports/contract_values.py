@@ -20,6 +20,20 @@ from utils.data_helpers import (
 _BIDI_CHARS = ("\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\ufeff")
 
 
+def _flatten_html(html: str) -> str:
+    """Collapse a multi-line, indented HTML/CSS template into one line.
+
+    Streamlit's markdown renderer treats any line indented 4+ spaces as a
+    Markdown "indented code block" *before* it ever gets to parsing HTML.
+    A plain triple-quoted f-string written inside nested function bodies
+    ends up with exactly that kind of indentation, so a card can randomly
+    get rendered as raw text inside a code block instead of as HTML. Every
+    HTML/CSS snippet built as an f-string in this file should be passed
+    through this helper before being handed to st.markdown().
+    """
+    return "".join(line.strip() for line in html.strip().splitlines())
+
+
 def _clean_label(value: object) -> str:
     text = str(value)
     for ch in _BIDI_CHARS:
@@ -51,7 +65,8 @@ def _normalize_manual_date(raw_value) -> Optional[str]:
     return None
 
 
-def _excel_bytes(df: pd.DataFrame) -> bytes:
+def _excel_bytes(sheets: "list[Tuple[str, pd.DataFrame]]") -> bytes:
+    """Write one worksheet per (sheet_name, dataframe) pair passed in."""
     buffer = BytesIO()
     try:
         import xlsxwriter  # noqa: F401
@@ -60,7 +75,6 @@ def _excel_bytes(df: pd.DataFrame) -> bytes:
         engine = "openpyxl"
 
     with pd.ExcelWriter(buffer, engine=engine) as writer:
-        ws = writer.book.add_worksheet("حصر_القيمة")
         header_format = writer.book.add_format({
             "bold": True,
             "text_wrap": True,
@@ -78,27 +92,37 @@ def _excel_bytes(df: pd.DataFrame) -> bytes:
             "font_color": "#e2e8f0",
         })
 
-        for col_idx, col_name in enumerate(df.columns):
-            ws.write(0, col_idx, str(col_name), header_format)
-            ws.set_column(col_idx, col_idx, 24)
+        for sheet_name, df in sheets:
+            if df is None or df.empty:
+                continue
+            # Excel sheet names max out at 31 characters and can't hold
+            # certain punctuation — trim defensively.
+            safe_name = sheet_name[:31]
+            ws = writer.book.add_worksheet(safe_name)
+            writer.sheets[safe_name] = ws
 
-        for row_idx, row in enumerate(df.fillna("").astype(str).itertuples(index=False, name=None), start=1):
-            for col_idx, value in enumerate(row):
-                ws.write(row_idx, col_idx, str(value), cell_format)
+            for col_idx, col_name in enumerate(df.columns):
+                ws.write(0, col_idx, str(col_name), header_format)
+                ws.set_column(col_idx, col_idx, 24)
+
+            for row_idx, row in enumerate(df.fillna("").astype(str).itertuples(index=False, name=None), start=1):
+                for col_idx, value in enumerate(row):
+                    ws.write(row_idx, col_idx, str(value), cell_format)
 
     return buffer.getvalue()
 
 
-def _pdf_bytes(df: pd.DataFrame) -> bytes:
+def _pdf_bytes(sections: "list[Tuple[str, pd.DataFrame]]") -> bytes:
+    """Render one titled table per (section_title, dataframe) pair."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-    table_data = [list(df.columns)] + df.fillna("").astype(str).values.tolist()
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), title="حصر قيمة العقود")
-    style = ParagraphStyle(
+
+    title_style = ParagraphStyle(
         "ArabicTitle",
         fontName="Helvetica",
         fontSize=16,
@@ -106,23 +130,41 @@ def _pdf_bytes(df: pd.DataFrame) -> bytes:
         textColor=colors.HexColor("#e5e7eb"),
         backColor=colors.HexColor("#0b1220"),
     )
-    story = [Paragraph("حصر قيمة العقود", style), Spacer(1, 14)]
-    table = Table(table_data, repeatRows=1)
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#16263f")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#2b3d5c")),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#0f172a"), colors.HexColor("#111827")]),
-                ("FONTSIZE", (0, 0), (-1, -1), 7),
-            ]
-        )
+    section_style = ParagraphStyle(
+        "ArabicSection",
+        fontName="Helvetica-Bold",
+        fontSize=12,
+        alignment=1,
+        textColor=colors.HexColor("#93c5fd"),
     )
-    story.append(table)
+
+    story = [Paragraph("حصر قيمة العقود", title_style), Spacer(1, 14)]
+
+    for section_title, df in sections:
+        if df is None or df.empty:
+            continue
+        story.append(Paragraph(section_title, section_style))
+        story.append(Spacer(1, 8))
+
+        table_data = [list(df.columns)] + df.fillna("").astype(str).values.tolist()
+        table = Table(table_data, repeatRows=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#16263f")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#2b3d5c")),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#0f172a"), colors.HexColor("#111827")]),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ]
+            )
+        )
+        story.append(table)
+        story.append(Spacer(1, 20))
+
     doc.build(story)
     return buffer.getvalue()
 
@@ -226,8 +268,7 @@ def _render_summary_cards(summary_df: pd.DataFrame) -> None:
 
     total_value = float(summary_df["قيمة العقود"].sum()) if "قيمة العقود" in summary_df.columns else 0.0
 
-    st.markdown(
-        """
+    style_block = _flatten_html("""
         <style>
         .cv-card {
             position: relative;
@@ -269,16 +310,15 @@ def _render_summary_cards(summary_df: pd.DataFrame) -> None:
             margin-bottom: 22px;
         }
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    """)
+    st.markdown(style_block, unsafe_allow_html=True)
 
-    total_html = f"""
-    <div class="cv-card cv-total">
-        <div class="cv-label"><span class="cv-icon">💰</span>إجمالي قيمة العقود</div>
-        <div class="cv-value-total">{total_value:,.2f}</div>
-    </div>
-    """
+    total_html = _flatten_html(f"""
+        <div class="cv-card cv-total">
+            <div class="cv-label"><span class="cv-icon">💰</span>إجمالي قيمة العقود</div>
+            <div class="cv-value-total">{total_value:,.2f}</div>
+        </div>
+    """)
     st.markdown(total_html, unsafe_allow_html=True)
 
     palette = [
@@ -295,15 +335,19 @@ def _render_summary_cards(summary_df: pd.DataFrame) -> None:
         factory_name = str(row.get("اسم المصنع", "")).strip() or "غير محدد"
         factory_value = float(row.get("قيمة العقود", 0) or 0)
         color_start, color_end, accent = palette[idx % len(palette)]
-        factory_rows.append(f"""
+        card_html = _flatten_html(f"""
             <div class="cv-card" style="background: linear-gradient(135deg, {color_start}, {color_end});">
                 <div class="cv-label" style="color:{accent};"><span class="cv-icon">🏭</span>{factory_name}</div>
                 <div class="cv-value-factory">{factory_value:,.2f}</div>
             </div>
         """)
+        factory_rows.append(card_html)
 
     if factory_rows:
-        st.markdown(f"<div class='cv-grid'>{''.join(factory_rows)}</div>", unsafe_allow_html=True)
+        grid_html = _flatten_html(
+            "<div class='cv-grid'>" + "".join(factory_rows) + "</div>"
+        )
+        st.markdown(grid_html, unsafe_allow_html=True)
 
 
 def _render_table(df: pd.DataFrame, title: str) -> None:
@@ -324,16 +368,17 @@ def _render_table(df: pd.DataFrame, title: str) -> None:
     if link_col is not None:
         display_df[link_col] = display_df[link_col].map(_link_anchor)
 
-    html = display_df.to_html(index=False, escape=False, border=0, justify="right")
-    html = f"""
-    <div style="direction: rtl; text-align: right; margin-top: 18px;">
-      <h3 style="margin: 0 0 10px; color: #e5e7eb; font-weight: 800;">{title}</h3>
-      <div style="overflow:auto; border: 1px solid rgba(148,163,184,0.18); border-radius: 14px; background: rgba(15,23,42,0.9); padding: 10px;">
-        {html}
-      </div>
-    </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
+    table_html = display_df.to_html(index=False, escape=False, border=0, justify="right")
+    # NOTE: the table markup itself is left untouched (its internal newlines
+    # are harmless once it's embedded inside the wrapper below) — only the
+    # wrapper's own indentation needs flattening.
+    wrapper_open = _flatten_html(f"""
+        <div style="direction: rtl; text-align: right; margin-top: 18px;">
+          <h3 style="margin: 0 0 10px; color: #e5e7eb; font-weight: 800;">{title}</h3>
+          <div style="overflow:auto; border: 1px solid rgba(148,163,184,0.18); border-radius: 14px; background: rgba(15,23,42,0.9); padding: 10px;">
+    """)
+    wrapper_close = _flatten_html("</div></div>")
+    st.markdown(wrapper_open + table_html + wrapper_close, unsafe_allow_html=True)
 
 
 def render_contract_values_report(
@@ -376,8 +421,9 @@ def render_contract_values_report(
     summary_df = build_contract_value_summary(df)
     details_df = build_contract_value_details(df)
 
+    # Summary is already covered by the cards above, so only the detailed
+    # table is shown on the page itself.
     _render_summary_cards(summary_df)
-    _render_table(summary_df, "مقارنة المصانع")
     _render_table(details_df, "تفاصيل العقود")
 
     export_df = details_df.copy()
@@ -391,8 +437,14 @@ def render_contract_values_report(
             lambda value: value if pd.notna(value) and str(value).strip() else ""
         )
 
-    excel_bytes = _excel_bytes(export_df)
-    pdf_bytes = _pdf_bytes(export_df)
+    # Both the Excel workbook and the PDF get two sections: مقارنة المصانع
+    # first, then تفاصيل العقود.
+    export_sections = [
+        ("مقارنة المصانع", summary_df),
+        ("تفاصيل العقود", export_df),
+    ]
+    excel_bytes = _excel_bytes(export_sections)
+    pdf_bytes = _pdf_bytes(export_sections)
 
     col1, col2 = st.columns(2)
     with col1:
