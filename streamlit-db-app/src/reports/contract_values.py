@@ -165,12 +165,46 @@ def _render_summary_cards(summary_df: pd.DataFrame) -> None:
         return
 
     total_value = float(summary_df["قيمة العقود"].sum()) if "قيمة العقود" in summary_df.columns else 0.0
-    st.metric("إجمالي قيمة العقود", f"{total_value:,.2f}")
+    total_html = f"""
+    <div style="
+        background: linear-gradient(135deg, #122338, #0c1728);
+        border: 1px solid rgba(148,163,184,0.25);
+        border-radius: 18px;
+        padding: 22px 24px;
+        margin-bottom: 18px;
+        box-shadow: 0 10px 30px rgba(2,6,23,0.35);
+        direction: rtl;
+    ">
+        <div style="font-size: 14px; color: #a5b4cf; margin-bottom: 8px;">إجمالي قيمة العقود</div>
+        <div style="font-size: 34px; font-weight: 800; color: #f8fafc;">{total_value:,.2f}</div>
+    </div>
+    """
+    st.markdown(total_html, unsafe_allow_html=True)
 
-    cols = st.columns(2)
-    for idx, row in summary_df.iterrows():
-        col = cols[idx % 2]
-        col.metric(row["اسم المصنع"], f"{float(row['قيمة العقود']):,.2f}")
+    factory_rows = []
+    for _, row in summary_df.iterrows():
+        factory_name = str(row.get("اسم المصنع", "")).strip() or "غير محدد"
+        factory_value = float(row.get("قيمة العقود", 0) or 0)
+        factory_rows.append(f"""
+            <div style="
+                background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(17,24,39,0.95));
+                border: 1px solid rgba(148,163,184,0.2);
+                border-radius: 16px;
+                padding: 18px 20px;
+                min-height: 120px;
+                box-shadow: 0 8px 22px rgba(15,23,42,0.25);
+                direction: rtl;
+            ">
+                <div style="font-size: 14px; color: #93c5fd; margin-bottom: 10px;">{factory_name}</div>
+                <div style="font-size: 28px; font-weight: 800; color: #f8fafc;">{factory_value:,.2f}</div>
+            </div>
+        """)
+
+    if factory_rows:
+        st.markdown(
+            f"<div style='display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-bottom:20px;'>{''.join(factory_rows)}</div>",
+            unsafe_allow_html=True,
+        )
 
 
 def _render_table(df: pd.DataFrame, title: str) -> None:
@@ -178,13 +212,20 @@ def _render_table(df: pd.DataFrame, title: str) -> None:
         st.info(f"لا توجد بيانات متاحة لـ {title}.")
         return
 
-    st.markdown(f"<h3 style='text-align:right'>{title}</h3>", unsafe_allow_html=True)
     display_df = df.copy()
     if "رابط نسخة العقد" in display_df.columns:
         display_df["رابط نسخة العقد"] = display_df["رابط نسخة العقد"].map(_link_anchor)
 
-    styled = display_df.style.set_properties(**{"text-align": "right", "direction": "rtl"})
-    st.dataframe(styled, use_container_width=True, hide_index=True, height=420)
+    html = display_df.to_html(index=False, escape=False, border=0, justify="right")
+    html = f"""
+    <div style="direction: rtl; text-align: right; margin-top: 18px;">
+      <h3 style="margin: 0 0 10px; color: #e5e7eb; font-weight: 800;">{title}</h3>
+      <div style="overflow:auto; border: 1px solid rgba(148,163,184,0.18); border-radius: 14px; background: rgba(15,23,42,0.9); padding: 10px;">
+        {html}
+      </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_contract_values_report(

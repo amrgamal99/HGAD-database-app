@@ -1287,10 +1287,14 @@ def main() -> None:
                 sidebar_date_from = st.text_input("من تاريخ", value="", key="financial_from", placeholder="dd-mm-yyyy")
             with c_to:
                 sidebar_date_to = st.text_input("إلى تاريخ", value="", key="financial_to", placeholder="dd-mm-yyyy")
+            financial_search_clicked = st.button("بحث", key="financial_search_btn", use_container_width=True)
 
     normalized_app_mode = " ".join(str(app_mode or "").split())
     if normalized_app_mode == "تقارير مالية":
         if report_key == "contract_values":
+            if "financial_search_clicked" in locals() and not financial_search_clicked:
+                st.info("أدخل الفترة الزمنية ثم اضغط على بحث.")
+                return
             render_contract_values_report(
                 conn,
                 date_from=sidebar_date_from if "sidebar_date_from" in locals() else None,
