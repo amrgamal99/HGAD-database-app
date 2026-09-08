@@ -598,29 +598,34 @@ def _render_table(df: pd.DataFrame, title: str) -> None:
         return
 
     display_df = df.copy()
-
-    # Robust column match: find the link column even if its name picked up
-    # invisible bidi/formatting characters that make a plain `==` fail.
     link_col = None
     for col in display_df.columns:
         if _clean_label(col) == "رابط نسخة العقد":
             link_col = col
             break
 
+    column_config = {}
     if link_col is not None:
-        display_df[link_col] = display_df[link_col].map(_link_anchor)
+        display_df[link_col] = display_df[link_col].apply(
+            lambda value: str(value).strip() if pd.notna(value) and str(value).strip() else None
+        )
+        column_config[link_col] = st.column_config.LinkColumn(
+            "رابط نسخة العقد",
+            max_chars=50,
+            display_text="فتح الرابط",
+        )
 
-    table_html = display_df.to_html(index=False, escape=False, border=0, justify="right")
-    # NOTE: the table markup itself is left untouched (its internal newlines
-    # are harmless once it's embedded inside the wrapper below) — only the
-    # wrapper's own indentation needs flattening.
-    wrapper_open = _flatten_html(f"""
-        <div style="direction: rtl; text-align: right; margin-top: 18px;">
-          <h3 style="margin: 0 0 10px; color: #e5e7eb; font-weight: 800;">{title}</h3>
-          <div style="overflow:auto; border: 1px solid rgba(148,163,184,0.18); border-radius: 14px; background: rgba(15,23,42,0.9); padding: 10px;">
-    """)
-    wrapper_close = _flatten_html("</div></div>")
-    st.markdown(wrapper_open + table_html + wrapper_close, unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='direction: rtl; text-align: right; margin-top: 18px;'><h3 style='margin: 0 0 12px; color: #e5e7eb; font-weight: 800;'>{title}</h3></div>",
+        unsafe_allow_html=True,
+    )
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config=column_config or None,
+        height=440,
+    )
 
 
 def render_contract_values_report(
