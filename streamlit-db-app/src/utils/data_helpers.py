@@ -17,12 +17,15 @@ def normalize_date_for_supabase(value):
 
 
 def _normalize_factory_name(value):
-    if pd.isna(value):
+    if value is None:
+        return None
+    if isinstance(value, float) and pd.isna(value):
         return None
     text = str(value).strip()
-    if not text:
+    if not text or text.lower() in {"none", "nan", "null"}:
         return None
-    return text.replace("\u200f", "").replace("\u200e", "")
+    text = text.replace("\u200f", "").replace("\u200e", "")
+    return text if text and text.lower() not in {"none", "nan", "null"} else None
 
 
 def prepare_payload_dates(payload: dict, date_fields: list) -> dict:
@@ -60,22 +63,38 @@ def prepare_contract_values_dataframe(raw_df: pd.DataFrame, date_from=None, date
         return df
 
     if "company" in df.columns:
-        df["factoryname"] = df["company"].apply(
+        nested_factory = df["company"].apply(
             lambda value: value.get("factoryname") if isinstance(value, dict) else None
         )
-        df["companyname"] = df["company"].apply(
+        nested_company = df["company"].apply(
             lambda value: value.get("companyname") if isinstance(value, dict) else None
         )
 
-    if "اسم المصنع" in df.columns and "factoryname" in df.columns:
-        df["factoryname"] = df["factoryname"].combine_first(df["اسم المصنع"])
-    if "اسم الشركة" in df.columns and "companyname" in df.columns:
-        df["companyname"] = df["companyname"].combine_first(df["اسم الشركة"])
+        if "factoryname" not in df.columns:
+            df["factoryname"] = nested_factory
+        else:
+            df["factoryname"] = df["factoryname"].combine_first(nested_factory)
 
-    if "اسم المصنع" in df.columns and "factoryname" not in df.columns:
-        df["factoryname"] = df["اسم المصنع"]
-    if "اسم الشركة" in df.columns and "companyname" not in df.columns:
-        df["companyname"] = df["اسم الشركة"]
+        if "companyname" not in df.columns:
+            df["companyname"] = nested_company
+        else:
+            df["companyname"] = df["companyname"].combine_first(nested_company)
+
+    for target_col, aliases in [
+        ("factoryname", ["factoryname", "اسم المصنع", "factory"]),
+        ("companyname", ["companyname", "اسم الشركة", "company"]),
+    ]:
+        values = []
+        for alias in aliases:
+            if alias in df.columns:
+                values.append(df[alias].map(_normalize_factory_name))
+        if values:
+            merged = values[0]
+            for value in values[1:]:
+                merged = merged.combine_first(value)
+            df[target_col] = merged
+        elif target_col not in df.columns:
+            df[target_col] = None
 
     for col in [
         "factoryname",
@@ -123,6 +142,7 @@ def build_contract_value_summary(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     work["factoryname"] = work["factoryname"].map(_normalize_factory_name)
+    work = work[work["factoryname"].notna()].copy()
     work = work[work["factoryname"].isin(["التجمع", "بدر"])].copy()
     if work.empty:
         return pd.DataFrame(columns=["اسم المصنع", "قيمة العقود"])
@@ -159,8 +179,8 @@ def build_contract_value_details(df: pd.DataFrame) -> pd.DataFrame:
     work["companyname"] = work["companyname"].map(_normalize_factory_name)
     work["اسم المشروع"] = work.get("اسم المشروع", pd.Series([None] * len(work))).map(_normalize_factory_name)
 
-    work["اسم المصنع"] = work["factoryname"].combine_first(work.get("اسم المصنع", pd.Series([None] * len(work))))
-    work["اسم الشركة"] = work["companyname"].combine_first(work.get("اسم الشركة", pd.Series([None] * len(work))))
+    work["اسم المصنع"] = work["factoryname"].combine_first(work.get("اسم المصنع", pd.Series([None] * len(work)))).map(_normalize_factory_name)
+    work["اسم الشركة"] = work["companyname"].combine_first(work.get("اسم الشركة", pd.Series([None] * len(work)))).map(_normalize_factory_name)
 
     final_columns = [
         "اسم المصنع",

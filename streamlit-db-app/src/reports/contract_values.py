@@ -450,12 +450,22 @@ def fetch_contract_value_report_data(
             # manual entries (which use flat factoryname/companyname keys)
             # line up with the rows fetched from Supabase.
             if not raw_df.empty and "company" in raw_df.columns:
-                raw_df["factoryname"] = raw_df["company"].apply(
+                nested_factory = raw_df["company"].apply(
                     lambda x: x.get("factoryname") if isinstance(x, dict) else None
                 )
-                raw_df["companyname"] = raw_df["company"].apply(
+                nested_company = raw_df["company"].apply(
                     lambda x: x.get("companyname") if isinstance(x, dict) else None
                 )
+
+                if "factoryname" not in raw_df.columns:
+                    raw_df["factoryname"] = nested_factory
+                else:
+                    raw_df["factoryname"] = raw_df["factoryname"].combine_first(nested_factory)
+
+                if "companyname" not in raw_df.columns:
+                    raw_df["companyname"] = nested_company
+                else:
+                    raw_df["companyname"] = raw_df["companyname"].combine_first(nested_company)
 
             raw_df = _merge_manual_entries(raw_df, date_from, date_to)
     except Exception:
