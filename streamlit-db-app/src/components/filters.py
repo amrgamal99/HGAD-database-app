@@ -293,6 +293,35 @@ def _render_last_edit_caption(date_full: Optional[str]):
     )
 
 
+def create_primary_category_selector() -> str:
+    """Global mode selector used at the app sidebar root."""
+    mode = st.session_state.get("app_mode", "قاعدة البيانات")
+    selected = st.selectbox(
+        "القسم الرئيسي",
+        options=["قاعدة البيانات", "تقارير مالية"],
+        index=0 if mode == "قاعدة البيانات" else 1,
+        key="app_mode",
+        help="حدد نوع العرض الرئيسي في التطبيق",
+    )
+    return selected
+
+
+def create_financial_report_selector() -> str:
+    """Choose which financial report to display inside the financial-mode branch."""
+    options = [
+        ("حصر قيمة العقود", "contract_values"),
+        ("تقرير مالي", "financial_report"),
+    ]
+    selected = st.selectbox(
+        "نوع التقرير المالي",
+        options=options,
+        index=0,
+        format_func=lambda item: item[0],
+        key="financial_report_type",
+    )
+    return selected[1]
+
+
 def create_factory_dropdown() -> Optional[str]:
     display_to_factory = {
         "الكل": None,

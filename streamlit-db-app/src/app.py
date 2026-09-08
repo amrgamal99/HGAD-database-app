@@ -46,7 +46,10 @@ from components.filters import (
     create_project_dropdown,
     create_type_dropdown,
     create_column_search,
+    create_primary_category_selector,
+    create_financial_report_selector,
 )
+from reports.contract_values import render_contract_values_report
 
 # =========================================================
 # Paths / Assets
@@ -1227,10 +1230,19 @@ def main() -> None:
 
     with st.sidebar:
         st.title("عوامل التصفية")
+        app_mode = create_primary_category_selector()
         factory_name = create_factory_dropdown()
         company_name = create_company_dropdown(conn, factory_name=factory_name)
         project_name = create_project_dropdown(conn, company_name)
-        type_label, type_key = create_type_dropdown(conn, company_name, project_name)
+
+        if app_mode == "تقارير مالية":
+            report_key = create_financial_report_selector()
+            if report_key == "contract_values":
+                render_contract_values_report(conn, company_name=company_name, project_name=project_name)
+                return
+            type_label, type_key = create_type_dropdown(conn, company_name, project_name)
+        else:
+            type_label, type_key = create_type_dropdown(conn, company_name, project_name)
 
         st.markdown("---")
         search_clicked = st.button("🔍 بحث", key="sidebar_search_btn", use_container_width=True)
@@ -1260,6 +1272,10 @@ def main() -> None:
                 height=0,
                 width=0,
             )
+
+    if app_mode == "تقارير مالية":
+        st.info("يرجى اختيار نوع التقرير المالي من الشريط الجانبي.")
+        return
 
     if not company_name or not project_name:
         st.info("برجاء اختيار الشركة والمشروع من الشريط الجانبي لعرض النتائج.")
