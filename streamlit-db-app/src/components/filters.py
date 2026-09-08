@@ -298,7 +298,7 @@ def create_primary_category_selector() -> str:
     mode = st.session_state.get("app_mode", "قاعدة البيانات")
     selected = st.selectbox(
         "القسم الرئيسي",
-        options=["قاعدة البيانات", "تقارير مالية"],
+        options=["قاعدة البيانات", "تقارير  المالية"],
         index=0 if mode == "قاعدة البيانات" else 1,
         key="app_mode",
         help="حدد نوع العرض الرئيسي في التطبيق",

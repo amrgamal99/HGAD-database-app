@@ -89,9 +89,14 @@ def build_contract_value_summary(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
 
+    work = df.copy()
+    if "factoryname" not in work.columns and "اسم المصنع" in work.columns:
+        work = work.rename(columns={"اسم المصنع": "factoryname"})
+    if "factoryname" not in work.columns or "قيمة التعاقد" not in work.columns:
+        return pd.DataFrame()
+
     comparison = (
-        df[df["factoryname"].isin(["التجمع", "بدر"])]
-        .groupby("factoryname", as_index=False)["قيمة التعاقد"]
+        work[work["factoryname"].isin(["التجمع", "بدر"])].groupby("factoryname", as_index=False)["قيمة التعاقد"]
         .sum()
     )
     comparison = comparison.rename(columns={"factoryname": "اسم المصنع", "قيمة التعاقد": "قيمة العقود"})
@@ -102,20 +107,24 @@ def build_contract_value_details(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
 
-    required_cols = [
-        "factoryname",
-        "companyname",
+    work = df.copy()
+    if "factoryname" not in work.columns:
+        work["factoryname"] = None
+    if "companyname" not in work.columns:
+        work["companyname"] = None
+
+    final_columns = [
+        "اسم المصنع",
+        "اسم الشركة",
         "اسم المشروع",
         "تاريخ التعاقد",
         "قيمة التعاقد",
         "قيمه التعاقد شامله الضريبه",
         "رابط نسخة العقد",
     ]
-    for col in required_cols:
-        if col not in df.columns:
-            df[col] = None
 
-    details = df.rename(columns={
+    rename_map = {}
+    display_map = {
         "factoryname": "اسم المصنع",
         "companyname": "اسم الشركة",
         "اسم المشروع": "اسم المشروع",
@@ -123,10 +132,16 @@ def build_contract_value_details(df: pd.DataFrame) -> pd.DataFrame:
         "قيمة التعاقد": "قيمة التعاقد",
         "قيمه التعاقد شامله الضريبه": "قيمه التعاقد شامله الضريبه",
         "رابط نسخة العقد": "رابط نسخة العقد",
-    }).copy()
-    details = details[required_cols].copy()
-    details = details.rename(columns={
-        "factoryname": "اسم المصنع",
-        "companyname": "اسم الشركة",
-    })
+    }
+
+    for key, value in display_map.items():
+        if key in work.columns:
+            rename_map[key] = value
+
+    details = work.rename(columns=rename_map).copy()
+    for col in final_columns:
+        if col not in details.columns:
+            details[col] = None
+
+    details = details[final_columns].copy()
     return details.sort_values(["اسم المصنع", "اسم الشركة"], na_position="last")
