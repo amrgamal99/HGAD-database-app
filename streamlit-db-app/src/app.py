@@ -1287,7 +1287,6 @@ def main() -> None:
         if report_key == "contract_values":
             render_contract_values_report(conn)
             return
-        st.info("يرجى اختيار نوع التقرير المالي من الشريط الجانبي.")
         return
 
     if not company_name or not project_name:

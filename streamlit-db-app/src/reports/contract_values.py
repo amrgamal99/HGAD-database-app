@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import BytesIO
 from typing import Optional, Tuple
 
 import pandas as pd
@@ -12,6 +13,60 @@ from utils.data_helpers import (
     build_contract_value_summary,
     prepare_contract_values_dataframe,
 )
+
+
+def _excel_bytes(df: pd.DataFrame) -> bytes:
+    buffer = BytesIO()
+    try:
+        import xlsxwriter  # noqa: F401
+        engine = "xlsxwriter"
+    except Exception:
+        engine = "openpyxl"
+
+    with pd.ExcelWriter(buffer, engine=engine) as writer:
+        df.to_excel(writer, index=False, sheet_name="حصر_القيمة")
+
+    return buffer.getvalue()
+
+
+def _pdf_bytes(df: pd.DataFrame) -> bytes:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    table_data = [list(df.columns)] + df.fillna("").astype(str).values.tolist()
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), title="حصر قيمة العقود")
+    style = ParagraphStyle("ArabicTitle", fontName="Helvetica", fontSize=16, alignment=1, textColor=colors.HexColor("#1f2937"))
+    story = [Paragraph("حصر قيمة العقود", style), Spacer(1, 14)]
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    story.append(table)
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _link_anchor(value: object) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    url = str(value).strip()
+    if not url or not url.startswith(("http://", "https://")):
+        return ""
+    return f'<a href="{url}" target="_blank" rel="noopener noreferrer">فتح رابط العقد</a>'
 
 
 @st.cache_data(show_spinner=False)
@@ -69,6 +124,15 @@ def _render_table(df: pd.DataFrame, title: str) -> None:
         return
 
     st.markdown(f"<h3 style='text-align:right'>{title}</h3>", unsafe_allow_html=True)
+    if "رابط نسخة العقد" in df.columns:
+        display_df = df.copy()
+        display_df["رابط نسخة العقد"] = display_df["رابط نسخة العقد"].map(_link_anchor)
+        st.markdown(
+            display_df.to_html(index=False, escape=False, border=0, justify="right"),
+            unsafe_allow_html=True,
+        )
+        return
+
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
@@ -121,10 +185,21 @@ def render_contract_values_report(
         lambda value: value if pd.notna(value) and str(value).strip() else ""
     )
 
-    csv_bytes = export_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-    st.download_button(
-        label="⬇️ تنزيل تفاصيل العقود (CSV)",
-        data=csv_bytes,
-        file_name="حصر_قيمه_عقود.csv",
-        mime="text/csv",
-    )
+    excel_bytes = _excel_bytes(export_df)
+    pdf_bytes = _pdf_bytes(export_df)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            label="⬇️ تنزيل Excel",
+            data=excel_bytes,
+            file_name="حصر_قيمه_عقود.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    with col2:
+        st.download_button(
+            label="⬇️ تنزيل PDF",
+            data=pdf_bytes,
+            file_name="حصر_قيمه_عقود.pdf",
+            mime="application/pdf",
+        )
