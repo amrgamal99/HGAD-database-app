@@ -159,6 +159,9 @@ def build_contract_value_details(df: pd.DataFrame) -> pd.DataFrame:
     work["companyname"] = work["companyname"].map(_normalize_factory_name)
     work["اسم المشروع"] = work.get("اسم المشروع", pd.Series([None] * len(work))).map(_normalize_factory_name)
 
+    work["اسم المصنع"] = work["factoryname"].combine_first(work.get("اسم المصنع", pd.Series([None] * len(work))))
+    work["اسم الشركة"] = work["companyname"].combine_first(work.get("اسم الشركة", pd.Series([None] * len(work))))
+
     final_columns = [
         "اسم المصنع",
         "اسم الشركة",
@@ -169,17 +172,7 @@ def build_contract_value_details(df: pd.DataFrame) -> pd.DataFrame:
         "رابط نسخة العقد",
     ]
 
-    rename_map = {
-        "factoryname": "اسم المصنع",
-        "companyname": "اسم الشركة",
-        "اسم المشروع": "اسم المشروع",
-        "تاريخ التعاقد": "تاريخ التعاقد",
-        "قيمة التعاقد": "قيمة التعاقد",
-        "قيمه التعاقد شامله الضريبه": "قيمه التعاقد شامله الضريبه",
-        "رابط نسخة العقد": "رابط نسخة العقد",
-    }
-
-    details = work.rename(columns=rename_map).copy()
+    details = work.copy()
     for col in final_columns:
         if col not in details.columns:
             details[col] = None
