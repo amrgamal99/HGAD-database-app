@@ -1,11 +1,16 @@
 import os
 import re
+import sys
 import requests
 import zipfile
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, Tuple, Dict, List
 import urllib.parse
+
+SRC_DIR = Path(__file__).resolve().parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 import pandas as pd
 import streamlit as st
