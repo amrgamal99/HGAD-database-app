@@ -15,51 +15,28 @@ from utils.data_helpers import (
 )
 
 
-def _theme_html_table(df: pd.DataFrame) -> str:
-    if df is None or df.empty:
-        return ""
-    style = """
-    <style>
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            direction: rtl;
-            font-family: 'Cairo', 'Segoe UI', sans-serif;
-            background: #0b1220;
-            color: #e5e7eb;
-            border: 1px solid #243248;
-            border-radius: 12px;
-            overflow: hidden;
-        }
-        th {
-            background: linear-gradient(135deg, #16263f, #10213a);
-            color: #f8fafc;
-            font-weight: 800;
-            text-align: right;
-            padding: 10px 12px;
-            border-bottom: 1px solid #2b3d5c;
-        }
-        td {
-            padding: 10px 12px;
-            border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-            background: rgba(15, 23, 42, 0.92);
-            text-align: right;
-            vertical-align: top;
-        }
-        tr:hover td {
-            background: rgba(37, 99, 235, 0.08);
-        }
-        a {
-            color: #7dd3fc;
-            text-decoration: none;
-            font-weight: 700;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-    </style>
-    """
-    return style + df.to_html(index=False, escape=False, border=0, justify="right")
+def _normalize_manual_date(raw_value) -> Optional[str]:
+    if raw_value is None:
+        return None
+
+    text = str(raw_value).strip()
+    if not text:
+        return None
+
+    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d", "%d-%m-%y", "%d/%m/%y"):
+        try:
+            return pd.to_datetime(text, format=fmt).date().isoformat()
+        except Exception:
+            continue
+
+    try:
+        parsed = pd.to_datetime(text, errors="coerce")
+        if pd.notna(parsed):
+            return parsed.date().isoformat()
+    except Exception:
+        pass
+
+    return None
 
 
 def _excel_bytes(df: pd.DataFrame) -> bytes:
@@ -202,13 +179,12 @@ def _render_table(df: pd.DataFrame, title: str) -> None:
         return
 
     st.markdown(f"<h3 style='text-align:right'>{title}</h3>", unsafe_allow_html=True)
-    if "رابط نسخة العقد" in df.columns:
-        display_df = df.copy()
+    display_df = df.copy()
+    if "رابط نسخة العقد" in display_df.columns:
         display_df["رابط نسخة العقد"] = display_df["رابط نسخة العقد"].map(_link_anchor)
-        st.markdown(_theme_html_table(display_df), unsafe_allow_html=True)
-        return
 
-    st.markdown(_theme_html_table(df), unsafe_allow_html=True)
+    styled = display_df.style.set_properties(**{"text-align": "right", "direction": "rtl"})
+    st.dataframe(styled, use_container_width=True, hide_index=True, height=420)
 
 
 def render_contract_values_report(
@@ -225,18 +201,8 @@ def render_contract_values_report(
         st.error("تعذر الاتصال بقاعدة البيانات.")
         return
 
-    date_from_value = date_from.isoformat() if isinstance(date_from, pd.Timestamp) else date_from
-    date_to_value = date_to.isoformat() if isinstance(date_to, pd.Timestamp) else date_to
-
-    if isinstance(date_from, str) and date_from:
-        date_from_value = date_from
-    if isinstance(date_to, str) and date_to:
-        date_to_value = date_to
-
-    if date_from is not None and not isinstance(date_from, (str, pd.Timestamp)):
-        date_from_value = date_from.isoformat() if hasattr(date_from, "isoformat") else None
-    if date_to is not None and not isinstance(date_to, (str, pd.Timestamp)):
-        date_to_value = date_to.isoformat() if hasattr(date_to, "isoformat") else None
+    date_from_value = _normalize_manual_date(date_from) if date_from is not None else None
+    date_to_value = _normalize_manual_date(date_to) if date_to is not None else None
 
     try:
         df = fetch_contract_value_report_data(

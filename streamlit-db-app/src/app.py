@@ -1284,9 +1284,9 @@ def main() -> None:
             st.markdown("---")
             c_from, c_to = st.columns(2)
             with c_from:
-                sidebar_date_from = st.date_input("من تاريخ", value=None, key="financial_from", format="YYYY-MM-DD")
+                sidebar_date_from = st.text_input("من تاريخ", value="", key="financial_from", placeholder="dd-mm-yyyy")
             with c_to:
-                sidebar_date_to = st.date_input("إلى تاريخ", value=None, key="financial_to", format="YYYY-MM-DD")
+                sidebar_date_to = st.text_input("إلى تاريخ", value="", key="financial_to", placeholder="dd-mm-yyyy")
 
     normalized_app_mode = " ".join(str(app_mode or "").split())
     if normalized_app_mode == "تقارير مالية":
