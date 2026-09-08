@@ -65,107 +65,169 @@ def _normalize_manual_date(raw_value) -> Optional[str]:
     return None
 
 
-def _excel_bytes(sheets: "list[Tuple[str, pd.DataFrame]]") -> bytes:
-    """Write one worksheet per (sheet_name, dataframe) pair passed in."""
-    buffer = BytesIO()
-    try:
-        import xlsxwriter  # noqa: F401
-        engine = "xlsxwriter"
-    except Exception:
-        engine = "openpyxl"
-
-    with pd.ExcelWriter(buffer, engine=engine) as writer:
-        header_format = writer.book.add_format({
-            "bold": True,
-            "text_wrap": True,
-            "valign": "vcenter",
-            "align": "center",
-            "bg_color": "#10213a",
-            "font_color": "#f8fafc",
-            "border": 1,
-        })
-        cell_format = writer.book.add_format({
-            "align": "right",
-            "valign": "vcenter",
-            "border": 1,
-            "bg_color": "#0f172a",
-            "font_color": "#e2e8f0",
-        })
-
-        for sheet_name, df in sheets:
-            if df is None or df.empty:
-                continue
-            # Excel sheet names max out at 31 characters and can't hold
-            # certain punctuation — trim defensively.
-            safe_name = sheet_name[:31]
-            ws = writer.book.add_worksheet(safe_name)
-            writer.sheets[safe_name] = ws
-
-            for col_idx, col_name in enumerate(df.columns):
-                ws.write(0, col_idx, str(col_name), header_format)
-                ws.set_column(col_idx, col_idx, 24)
-
-            for row_idx, row in enumerate(df.fillna("").astype(str).itertuples(index=False, name=None), start=1):
-                for col_idx, value in enumerate(row):
-                    ws.write(row_idx, col_idx, str(value), cell_format)
-
-    return buffer.getvalue()
+def _format_period_label(date_from: Optional[str], date_to: Optional[str]) -> str:
+    if date_from and date_to:
+        return f"\nمن {date_from} إلى {date_to}"
+    if date_from:
+        return f"\nمن {date_from}"
+    if date_to:
+        return f"\nحتى {date_to}"
+    return ""
 
 
-def _pdf_bytes(sections: "list[Tuple[str, pd.DataFrame]]") -> bytes:
-    """Render one titled table per (section_title, dataframe) pair."""
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+def _write_summary_sheet(
+    writer: "pd.ExcelWriter",
+    summary_df: pd.DataFrame,
+    date_from: Optional[str],
+    date_to: Optional[str],
+    formats: dict,
+) -> None:
+    from xlsxwriter.utility import xl_col_to_name
 
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), title="حصر قيمة العقود")
+    if summary_df is None or summary_df.empty:
+        return
 
-    title_style = ParagraphStyle(
-        "ArabicTitle",
-        fontName="Helvetica",
-        fontSize=16,
-        alignment=1,
-        textColor=colors.HexColor("#e5e7eb"),
-        backColor=colors.HexColor("#0b1220"),
-    )
-    section_style = ParagraphStyle(
-        "ArabicSection",
-        fontName="Helvetica-Bold",
-        fontSize=12,
-        alignment=1,
-        textColor=colors.HexColor("#93c5fd"),
+    df = summary_df.copy()
+    sheet_name = "مقارنة المصانع"
+    df.to_excel(writer, sheet_name=sheet_name, startrow=5, index=False)
+    ws = writer.sheets[sheet_name]
+    ws.right_to_left()
+    ws.hide_gridlines(2)
+    ws.set_zoom(110)
+
+    rows, cols = df.shape
+    last_col = xl_col_to_name(max(cols - 1, 0))
+    ws.merge_range(
+        f"A1:{last_col}2",
+        f"مقارنة قيمة العقود بين المصانع{_format_period_label(date_from, date_to)}",
+        formats["title"],
     )
 
-    story = [Paragraph("حصر قيمة العقود", title_style), Spacer(1, 14)]
+    if rows > 0:
+        ws.add_table(5, 0, rows + 5, cols - 1, {
+            "style": "Table Style Medium 2",
+            "columns": [{"header": str(col)} for col in df.columns],
+        })
 
-    for section_title, df in sections:
-        if df is None or df.empty:
-            continue
-        story.append(Paragraph(section_title, section_style))
-        story.append(Spacer(1, 8))
+    value_col_idx = None
+    for idx, col in enumerate(df.columns):
+        if _clean_label(col) == "قيمة العقود":
+            value_col_idx = idx
+            break
 
-        table_data = [list(df.columns)] + df.fillna("").astype(str).values.tolist()
-        table = Table(table_data, repeatRows=1)
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#16263f")),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#2b3d5c")),
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#0f172a"), colors.HexColor("#111827")]),
-                    ("FONTSIZE", (0, 0), (-1, -1), 7),
-                ]
+    ws.set_column(0, 0, 28)
+    if value_col_idx is not None:
+        ws.set_column(value_col_idx, value_col_idx, 24, formats["money"])
+        total_value = pd.to_numeric(df.iloc[:, value_col_idx], errors="coerce").fillna(0).sum()
+        total_row = rows + 8
+        label_col = max(value_col_idx - 1, 0)
+        ws.write(total_row, label_col, "إجمالي قيمة العقود", formats["total_label"])
+        ws.write(total_row, value_col_idx, total_value, formats["total_money"])
+
+    ws.freeze_panes(6, 0)
+
+
+def _write_details_sheet(
+    writer: "pd.ExcelWriter",
+    details_df: pd.DataFrame,
+    date_from: Optional[str],
+    date_to: Optional[str],
+    formats: dict,
+) -> None:
+    from xlsxwriter.utility import xl_col_to_name
+
+    if details_df is None or details_df.empty:
+        return
+
+    df = details_df.copy()
+
+    link_col_idx = None
+    for idx, col in enumerate(df.columns):
+        if _clean_label(col) == "رابط نسخة العقد":
+            link_col_idx = idx
+            # Export the plain URL, not the clickable <a> markup used on the page.
+            df[col] = df[col].apply(
+                lambda v: "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
             )
-        )
-        story.append(table)
-        story.append(Spacer(1, 20))
+            break
 
-    doc.build(story)
+    sheet_name = "تفاصيل العقود"
+    df.to_excel(writer, sheet_name=sheet_name, startrow=5, index=False)
+    ws = writer.sheets[sheet_name]
+    ws.right_to_left()
+    ws.hide_gridlines(2)
+    ws.set_zoom(110)
+
+    rows, cols = df.shape
+    last_col = xl_col_to_name(max(cols - 1, 0))
+    ws.merge_range(
+        f"A1:{last_col}2",
+        f"تفاصيل العقود{_format_period_label(date_from, date_to)}",
+        formats["title"],
+    )
+
+    if rows > 0:
+        ws.add_table(5, 0, rows + 5, cols - 1, {
+            "style": "Table Style Medium 2",
+            "columns": [{"header": str(col)} for col in df.columns],
+        })
+
+    for idx, col in enumerate(df.columns):
+        label = _clean_label(col)
+        if idx == link_col_idx:
+            for row_num, url in enumerate(df[col], start=6):
+                if url:
+                    ws.write_url(row_num, idx, url, formats["hyperlink"], "فتح العقد")
+            ws.set_column(idx, idx, 28)
+        elif "قيمة" in label or "قيمه" in label:
+            ws.set_column(idx, idx, 22, formats["money"])
+        elif label == "اسم المشروع":
+            ws.set_column(idx, idx, 42)
+        elif label in ("اسم الشركة", "اسم المصنع"):
+            ws.set_column(idx, idx, 26)
+        else:
+            ws.set_column(idx, idx, 20)
+
+    ws.freeze_panes(6, 0)
+
+
+def _excel_bytes(
+    summary_df: pd.DataFrame,
+    details_df: pd.DataFrame,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> bytes:
+    """Build the two-sheet workbook: مقارنة المصانع then تفاصيل العقود,
+    each with a merged RTL title banner, an Excel Table style, and (for
+    the details sheet) clickable hyperlinks in the link column."""
+    buffer = BytesIO()
+
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        workbook = writer.book
+        formats = {
+            "title": workbook.add_format({
+                "bold": True,
+                "font_size": 16,
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": "#1F4E78",
+                "font_color": "white",
+                "border": 1,
+                "text_wrap": True,
+            }),
+            "money": workbook.add_format({"num_format": "#,##0.00"}),
+            "total_label": workbook.add_format({
+                "bold": True, "bg_color": "#D9EAD3", "border": 1, "align": "right",
+            }),
+            "total_money": workbook.add_format({
+                "bold": True, "bg_color": "#D9EAD3", "border": 1, "num_format": "#,##0.00",
+            }),
+            "hyperlink": workbook.add_format({"font_color": "blue", "underline": 1}),
+        }
+
+        _write_summary_sheet(writer, summary_df, date_from, date_to, formats)
+        _write_details_sheet(writer, details_df, date_from, date_to, formats)
+
     return buffer.getvalue()
 
 
@@ -187,6 +249,173 @@ def _link_anchor(value: object) -> str:
         return ""
 
     return f'<a href="{text}" target="_blank" rel="noopener noreferrer">فتح رابط العقد</a>'
+
+
+# =============================================================================
+#  MANUAL DATA LIST (قائمة البيانات اليدوية كاملة)
+#
+#  Contracts that exist in real life but aren't in Supabase yet. Each entry
+#  is only added to the report if its contractid does NOT already appear
+#  among the rows fetched from the database — so a manual row is safe to
+#  reuse a contractid that hasn't been entered into Supabase, but it never
+#  duplicates one that has.
+# =============================================================================
+MANUAL_CONTRACT_ENTRIES = [
+    {
+        "contractid": 52, "companyid": 12, "اسم المشروع": "variaton 01 فيلات مدينة نور",
+        "تاريخ التعاقد": "2026-04-30", "قيمة التعاقد": 7703458,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1ph_pGd4-D7IaM-CMGE4y1g3VJivX6i2o/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "اتريم"
+    },
+    {
+        "contractid": 21, "companyid": 12, "اسم المشروع": "VO1 عمارات حدائق نور",
+        "تاريخ التعاقد": "2025-09-29", "قيمة التعاقد": 54017429,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1CXnPwVop7UT_oQzLpTjd3kLNFJOGH6kP/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "اتريم"
+    },
+    {
+        "contractid": 21, "companyid": 12, "اسم المشروع": "VO2 عمارات حدائق نور",
+        "تاريخ التعاقد": "2025-12-01", "قيمة التعاقد": 19937600,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1r8zEI59IFFWC5NROFKjpFdDcatyYnF40/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "اتريم"
+    },
+    {
+        "contractid": 43, "companyid": 12, "اسم المشروع": "VO - Doors&windows PH3CLU3-لوفر و المظلات مرحله ثالثه",
+        "تاريخ التعاقد": "2026-03-31", "قيمة التعاقد": 19531858,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1uE8QNlGhz78K3zXOVybliXkUi-dKi2zf/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "اتريم"
+    },
+    {
+        "contractid": 43, "companyid": 12, "اسم المشروع": "VO - Doors&windows PH3CLU4-لوفر و المظلات مرحله ثالثه",
+        "تاريخ التعاقد": "2026-03-30", "قيمة التعاقد": 18474287,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/10BIVVWA89o_gt1vPCkNmcZH8nJEILKPq/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "اتريم"
+    },
+    {
+        "contractid": 55, "companyid": 12, "اسم المشروع": "vo2 بريفادو المرحله الثانيه بمدينتي",
+        "تاريخ التعاقد": "2026-06-09", "قيمة التعاقد": 4420742,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/16-oXXP7-i4i9pVQzh1N_vn8m90bQDQrD/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "اتريم"
+    },
+    {
+        "contractid": 70, "companyid": 23, "اسم المشروع": "الوميتال داود بلوم فيلد",
+        "تاريخ التعاقد": "2025-08-25", "قيمة التعاقد": 7406888,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1jM3pEjuSZiR-U7UKdu14z1ih9TM9syRd/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "لا", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "داود النصر"
+    },
+    {
+        "contractid": 70, "companyid": 23, "اسم المشروع": "كلادينج داود بلوم فيلد",
+        "تاريخ التعاقد": "2025-11-18", "قيمة التعاقد": 2609374,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1CPQi1L4dcKcI2Xc3K-0TD4aUWlswmgxr/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "لا", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "داود النصر"
+    },
+    {
+        "contractid": 70, "companyid": 23, "اسم المشروع": "ملحق رقم 1 لعقد الوميتال",
+        "تاريخ التعاقد": "2026-08-13", "قيمة التعاقد": 4456656,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/19UTnx6jar9FLV7Rcjr0f3G94Xb-CGxED/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "لا", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "داود النصر"
+    },
+    {
+        "contractid": 70, "companyid": 23, "اسم المشروع": "ملحق رقم 1 لعقد كلادينج",
+        "تاريخ التعاقد": "2026-08-13", "قيمة التعاقد": 2142860,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1Dw3vomdhAV8YuvtybGCfn5wr6TJRvR5s/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "لا", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "داود النصر"
+    },
+    {
+        "contractid": 57, "companyid": 37, "اسم المشروع": "نور هاندريل",
+        "تاريخ التعاقد": "2026-04-29", "قيمة التعاقد": 15962242.95,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1Kg9__Iiqf9itDa0frGHdAJlk_BCKx1qm/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "التجمع", "companyname": "الاتحاد المصري  الحاذق"
+    },
+    {
+        "contractid": 57, "companyid": 37, "اسم المشروع": "نور لوفر",
+        "تاريخ التعاقد": "2026-05-30", "قيمة التعاقد": 4292159,
+        "رابط نسخة العقد": None,
+        "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "التجمع", "companyname": "الاتحاد المصري  الحاذق"
+    },
+    {
+        "contractid": 74, "companyid": 35, "اسم المشروع": "موقع القمزي الاول",
+        "تاريخ التعاقد": "2026-05-30", "قيمة التعاقد": 987450,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1Fr7mi1pBqpaNI7ugNlojUz0F3FFVgyA9/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "لا", "الملاحظات": None, "company": None, "factoryname": "التجمع", "companyname": "GRID"
+    },
+    {
+        "contractid": 74, "companyid": 35, "اسم المشروع": "موقع القمزي الثاني",
+        "تاريخ التعاقد": "2026-01-28", "قيمة التعاقد": 3711736,
+        "رابط نسخة العقد": None,
+        "قيمه التعاقد شامله الضريبه": "لا", "الملاحظات": None, "company": None, "factoryname": "التجمع", "companyname": "GRID"
+    },
+    {
+        "contractid": 44, "companyid": 12, "اسم المشروع": "ميفيدا جاردن",
+        "تاريخ التعاقد": "2026-01-22", "قيمة التعاقد": 34415689.50,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1HnfVeJaILScGmvPFT9HIvUcJELnSF9So/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "اتريم"
+    },
+    {
+        "contractid": 44, "companyid": 12, "اسم المشروع": "VO1 ميفيدا جاردن",
+        "تاريخ التعاقد": "2026-08-11", "قيمة التعاقد": 37114316.60,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1Mwjro2QLUCNRImkQIC-vgooO-w5qRxmk/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "اتريم"
+    },
+]
+
+
+def _merge_manual_entries(
+    raw_df: pd.DataFrame,
+    date_from: Optional[str],
+    date_to: Optional[str],
+) -> pd.DataFrame:
+    """Append MANUAL_CONTRACT_ENTRIES rows that fall inside [date_from, date_to]
+    and whose contractid isn't already present among the rows pulled from
+    Supabase. A manual entry is skipped only if its contractid was already
+    fetched from the database — it's fine for two manual entries, or a
+    manual entry and an unrelated db row, to share a contractid value."""
+    df = raw_df.copy() if raw_df is not None else pd.DataFrame()
+
+    db_contract_ids = set()
+    if not df.empty and "contractid" in df.columns:
+        db_contract_ids = set(df["contractid"].dropna().unique())
+
+    for col in ["factoryname", "companyname", "contractid", "companyid", "قيمة التعاقد"]:
+        if col not in df.columns:
+            df[col] = None
+
+    if "تاريخ التعاقد" in df.columns and not df.empty:
+        df["تاريخ التعاقد"] = pd.to_datetime(df["تاريخ التعاقد"], errors="coerce")
+    else:
+        df["تاريخ التعاقد"] = pd.to_datetime(pd.Series([], dtype="object"))
+
+    date_from_dt = pd.to_datetime(date_from) if date_from else None
+    date_to_dt = pd.to_datetime(date_to) if date_to else None
+
+    rows_to_add = []
+    for item in MANUAL_CONTRACT_ENTRIES:
+        entry = dict(item)
+        item_date = pd.to_datetime(entry["تاريخ التعاقد"])
+
+        if date_from_dt is not None and item_date < date_from_dt:
+            continue
+        if date_to_dt is not None and item_date > date_to_dt:
+            continue
+
+        if entry["contractid"] in db_contract_ids:
+            continue
+
+        entry["تاريخ التعاقد"] = item_date
+        rows_to_add.append(entry)
+
+    if rows_to_add:
+        df = pd.concat([df, pd.DataFrame(rows_to_add)], ignore_index=True)
+
+    if date_from_dt is not None:
+        df = df[df["تاريخ التعاقد"] >= date_from_dt]
+    if date_to_dt is not None:
+        df = df[df["تاريخ التعاقد"] <= date_to_dt]
+
+    df["قيمة التعاقد"] = pd.to_numeric(df.get("قيمة التعاقد"), errors="coerce").fillna(0)
+    df["تاريخ التعاقد"] = df["تاريخ التعاقد"].dt.strftime("%Y-%m-%d")
+
+    return df
 
 
 @st.cache_data(show_spinner=False)
@@ -216,6 +445,19 @@ def fetch_contract_value_report_data(
                 query = query.lte("تاريخ التعاقد", date_to)
             resp = query.execute()
             raw_df = pd.DataFrame(resp.data or [])
+
+            # Flatten the nested `company` join into plain columns so the
+            # manual entries (which use flat factoryname/companyname keys)
+            # line up with the rows fetched from Supabase.
+            if not raw_df.empty and "company" in raw_df.columns:
+                raw_df["factoryname"] = raw_df["company"].apply(
+                    lambda x: x.get("factoryname") if isinstance(x, dict) else None
+                )
+                raw_df["companyname"] = raw_df["company"].apply(
+                    lambda x: x.get("companyname") if isinstance(x, dict) else None
+                )
+
+            raw_df = _merge_manual_entries(raw_df, date_from, date_to)
     except Exception:
         return pd.DataFrame()
 
@@ -426,38 +668,11 @@ def render_contract_values_report(
     _render_summary_cards(summary_df)
     _render_table(details_df, "تفاصيل العقود")
 
-    export_df = details_df.copy()
-    export_link_col = None
-    for col in export_df.columns:
-        if _clean_label(col) == "رابط نسخة العقد":
-            export_link_col = col
-            break
-    if export_link_col is not None:
-        export_df[export_link_col] = export_df[export_link_col].apply(
-            lambda value: value if pd.notna(value) and str(value).strip() else ""
-        )
+    excel_bytes = _excel_bytes(summary_df, details_df, date_from_value, date_to_value)
 
-    # Both the Excel workbook and the PDF get two sections: مقارنة المصانع
-    # first, then تفاصيل العقود.
-    export_sections = [
-        ("مقارنة المصانع", summary_df),
-        ("تفاصيل العقود", export_df),
-    ]
-    excel_bytes = _excel_bytes(export_sections)
-    pdf_bytes = _pdf_bytes(export_sections)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.download_button(
-            label="⬇️ تنزيل Excel",
-            data=excel_bytes,
-            file_name="حصر_قيمه_عقود.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-    with col2:
-        st.download_button(
-            label="⬇️ تنزيل PDF",
-            data=pdf_bytes,
-            file_name="حصر_قيمه_عقود.pdf",
-            mime="application/pdf",
-        )
+    st.download_button(
+        label="⬇️ تنزيل Excel",
+        data=excel_bytes,
+        file_name="حصر_قيمه_عقود.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
