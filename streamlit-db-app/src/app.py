@@ -1282,7 +1282,8 @@ def main() -> None:
         else:
             report_key = create_financial_report_selector()
 
-    if app_mode == "تقارير مالية":
+    normalized_app_mode = " ".join(str(app_mode or "").split())
+    if normalized_app_mode == "تقارير مالية":
         if report_key == "contract_values":
             render_contract_values_report(conn)
             return

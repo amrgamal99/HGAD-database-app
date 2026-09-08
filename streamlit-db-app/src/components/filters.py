@@ -296,14 +296,15 @@ def _render_last_edit_caption(date_full: Optional[str]):
 def create_primary_category_selector() -> str:
     """Global mode selector used at the app sidebar root."""
     mode = st.session_state.get("app_mode", "قاعدة البيانات")
+    normalized_mode = " ".join(str(mode).split())
     selected = st.selectbox(
         "القسم الرئيسي",
-        options=["قاعدة البيانات", "تقارير  المالية"],
-        index=0 if mode == "قاعدة البيانات" else 1,
+        options=["قاعدة البيانات", "تقارير مالية"],
+        index=0 if normalized_mode == "قاعدة البيانات" else 1,
         key="app_mode",
         help="حدد نوع العرض الرئيسي في التطبيق",
     )
-    return selected
+    return " ".join(str(selected).split())
 
 
 def create_financial_report_selector() -> str:

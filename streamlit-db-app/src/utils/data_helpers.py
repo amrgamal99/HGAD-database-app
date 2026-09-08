@@ -1,6 +1,7 @@
 import datetime
 import pandas as pd
 
+
 def normalize_date_for_supabase(value):
     if value is None:
         return None
@@ -14,6 +15,16 @@ def normalize_date_for_supabase(value):
     except Exception:
         return None
 
+
+def _normalize_factory_name(value):
+    if pd.isna(value):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text.replace("\u200f", "").replace("\u200e", "")
+
+
 def prepare_payload_dates(payload: dict, date_fields: list) -> dict:
     out = payload.copy()
     for field in date_fields:
@@ -21,10 +32,10 @@ def prepare_payload_dates(payload: dict, date_fields: list) -> dict:
             out[field] = normalize_date_for_supabase(out[field])
     return out
 
+
 def format_data_for_display(data: pd.DataFrame) -> pd.DataFrame:
     """تنسيق عام إن رغبت باستخدامه لاحقًا."""
     df = data.copy()
-    # مثال: محاولة تنسيق الأعمدة التي تبدو كتواريخ
     for col in df.columns:
         if "تاريخ" in col or "إصدار" in col:
             try:
@@ -33,8 +44,10 @@ def format_data_for_display(data: pd.DataFrame) -> pd.DataFrame:
                 pass
     return df
 
+
 def filter_data_by_company(data: pd.DataFrame, company_name: str) -> pd.DataFrame:
     return data[data["اسم الشركة"] == company_name]
+
 
 def filter_data_by_project(data: pd.DataFrame, project_name: str) -> pd.DataFrame:
     return data[data["اسم المشروع"] == project_name]
@@ -68,6 +81,10 @@ def prepare_contract_values_dataframe(raw_df: pd.DataFrame, date_from=None, date
         if col not in df.columns:
             df[col] = None
 
+    df["factoryname"] = df["factoryname"].map(_normalize_factory_name)
+    df["companyname"] = df["companyname"].map(_normalize_factory_name)
+    df["اسم المشروع"] = df["اسم المشروع"].map(_normalize_factory_name)
+
     if "تاريخ التعاقد" in df.columns and not df.empty:
         df["تاريخ التعاقد"] = pd.to_datetime(df["تاريخ التعاقد"], errors="coerce")
     else:
@@ -95,11 +112,22 @@ def build_contract_value_summary(df: pd.DataFrame) -> pd.DataFrame:
     if "factoryname" not in work.columns or "قيمة التعاقد" not in work.columns:
         return pd.DataFrame()
 
+    work["factoryname"] = work["factoryname"].map(_normalize_factory_name)
+    work = work[work["factoryname"].isin(["التجمع", "بدر"])].copy()
+    if work.empty:
+        return pd.DataFrame(columns=["اسم المصنع", "قيمة العقود"])
+
     comparison = (
-        work[work["factoryname"].isin(["التجمع", "بدر"])].groupby("factoryname", as_index=False)["قيمة التعاقد"]
+        work.groupby("factoryname", as_index=False)["قيمة التعاقد"]
         .sum()
+        .rename(columns={"factoryname": "اسم المصنع", "قيمة التعاقد": "قيمة العقود"})
     )
-    comparison = comparison.rename(columns={"factoryname": "اسم المصنع", "قيمة التعاقد": "قيمة العقود"})
+
+    factory_order = ["التجمع", "بدر"]
+    comparison["اسم المصنع"] = comparison["اسم المصنع"].map(_normalize_factory_name)
+    comparison = comparison.set_index("اسم المصنع").reindex(factory_order).reset_index().rename(columns={"index": "اسم المصنع"})
+    comparison["قيمة العقود"] = pd.to_numeric(comparison["قيمة العقود"], errors="coerce").fillna(0)
+    comparison = comparison[comparison["اسم المصنع"].isin(factory_order)]
     return comparison
 
 
@@ -113,6 +141,10 @@ def build_contract_value_details(df: pd.DataFrame) -> pd.DataFrame:
     if "companyname" not in work.columns:
         work["companyname"] = None
 
+    work["factoryname"] = work["factoryname"].map(_normalize_factory_name)
+    work["companyname"] = work["companyname"].map(_normalize_factory_name)
+    work["اسم المشروع"] = work.get("اسم المشروع", pd.Series([None] * len(work))).map(_normalize_factory_name)
+
     final_columns = [
         "اسم المصنع",
         "اسم الشركة",
@@ -123,8 +155,7 @@ def build_contract_value_details(df: pd.DataFrame) -> pd.DataFrame:
         "رابط نسخة العقد",
     ]
 
-    rename_map = {}
-    display_map = {
+    rename_map = {
         "factoryname": "اسم المصنع",
         "companyname": "اسم الشركة",
         "اسم المشروع": "اسم المشروع",
@@ -133,10 +164,6 @@ def build_contract_value_details(df: pd.DataFrame) -> pd.DataFrame:
         "قيمه التعاقد شامله الضريبه": "قيمه التعاقد شامله الضريبه",
         "رابط نسخة العقد": "رابط نسخة العقد",
     }
-
-    for key, value in display_map.items():
-        if key in work.columns:
-            rename_map[key] = value
 
     details = work.rename(columns=rename_map).copy()
     for col in final_columns:
