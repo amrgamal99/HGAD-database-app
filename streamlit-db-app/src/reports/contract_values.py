@@ -31,7 +31,16 @@ def fetch_contract_value_report_data(
         return pd.DataFrame()
 
     try:
-        raw_df = fetch_data(_supabase, company_name or "", project_name or "", "contract")
+        if company_name or project_name:
+            raw_df = fetch_data(_supabase, company_name or "", project_name or "", "contract")
+        else:
+            query = _supabase.table("contract").select("*, company!inner(companyname, factoryname)")
+            if date_from:
+                query = query.gte("تاريخ التعاقد", date_from)
+            if date_to:
+                query = query.lte("تاريخ التعاقد", date_to)
+            resp = query.execute()
+            raw_df = pd.DataFrame(resp.data or [])
     except Exception:
         return pd.DataFrame()
 
@@ -73,10 +82,6 @@ def render_contract_values_report(
 
     if conn is None:
         st.error("تعذر الاتصال بقاعدة البيانات.")
-        return
-
-    if not company_name or not project_name:
-        st.info("يرجى اختيار الشركة والمشروع من الشريط الجانبي لعرض هذا التقرير.")
         return
 
     c1, c2 = st.columns(2)

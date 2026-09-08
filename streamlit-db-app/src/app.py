@@ -1233,52 +1233,59 @@ def main() -> None:
         st.error("فشل الاتصال بقاعدة البيانات. يرجى مراجعة بيانات الاتصال والتأكد من تشغيل الخادم.")
         return
 
+    app_mode = "قاعدة البيانات"
+    factory_name = None
+    company_name = None
+    project_name = None
+    type_label = None
+    type_key = None
+    report_key = "contract_values"
+
     with st.sidebar:
         st.title("عوامل التصفية")
         app_mode = create_primary_category_selector()
-        factory_name = create_factory_dropdown()
-        company_name = create_company_dropdown(conn, factory_name=factory_name)
-        project_name = create_project_dropdown(conn, company_name)
 
-        if app_mode == "تقارير مالية":
-            report_key = create_financial_report_selector()
-            if report_key == "contract_values":
-                render_contract_values_report(conn, company_name=company_name, project_name=project_name)
-                return
-            type_label, type_key = create_type_dropdown(conn, company_name, project_name)
-        else:
+        if app_mode == "قاعدة البيانات":
+            factory_name = create_factory_dropdown()
+            company_name = create_company_dropdown(conn, factory_name=factory_name)
+            project_name = create_project_dropdown(conn, company_name)
             type_label, type_key = create_type_dropdown(conn, company_name, project_name)
 
-        st.markdown("---")
-        search_clicked = st.button("🔍 بحث", key="sidebar_search_btn", use_container_width=True)
+            st.markdown("---")
+            search_clicked = st.button("🔍 بحث", key="sidebar_search_btn", use_container_width=True)
 
-        import streamlit.components.v1 as components
-        if search_clicked:
-            components.html(
-                """
-                <script>
-                (function() {
-                    function collapse() {
-                        var w = window.parent;
-                        var sidebar = w.document.querySelector('[data-testid="stSidebar"]');
-                        if (!sidebar) return;
-                        if (sidebar.getAttribute('aria-expanded') === 'false') return;
-                        var btn = w.document.querySelector('[data-testid="stSidebarCollapseButton"] button');
-                        if (!btn) {
-                            var wrap = w.document.querySelector('[data-testid="stSidebarCollapseButton"]');
-                            if (wrap) btn = wrap.querySelector('button');
+            import streamlit.components.v1 as components
+            if search_clicked:
+                components.html(
+                    """
+                    <script>
+                    (function() {
+                        function collapse() {
+                            var w = window.parent;
+                            var sidebar = w.document.querySelector('[data-testid="stSidebar"]');
+                            if (!sidebar) return;
+                            if (sidebar.getAttribute('aria-expanded') === 'false') return;
+                            var btn = w.document.querySelector('[data-testid="stSidebarCollapseButton"] button');
+                            if (!btn) {
+                                var wrap = w.document.querySelector('[data-testid="stSidebarCollapseButton"]');
+                                if (wrap) btn = wrap.querySelector('button');
+                            }
+                            if (btn) { btn.click(); }
                         }
-                        if (btn) { btn.click(); }
-                    }
-                    setTimeout(collapse, 200);
-                })();
-                </script>
-                """,
-                height=0,
-                width=0,
-            )
+                        setTimeout(collapse, 200);
+                    })();
+                    </script>
+                    """,
+                    height=0,
+                    width=0,
+                )
+        else:
+            report_key = create_financial_report_selector()
 
     if app_mode == "تقارير مالية":
+        if report_key == "contract_values":
+            render_contract_values_report(conn)
+            return
         st.info("يرجى اختيار نوع التقرير المالي من الشريط الجانبي.")
         return
 
