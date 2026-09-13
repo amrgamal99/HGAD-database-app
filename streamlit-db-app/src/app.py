@@ -1284,11 +1284,28 @@ def main() -> None:
         else:
             report_key, report_view = create_financial_report_selector()
             st.markdown("---")
-            c_from, c_to = st.columns(2)
-            with c_from:
-                sidebar_date_from = st.text_input("من تاريخ", value="", key="financial_from", placeholder="dd-mm-yyyy")
-            with c_to:
-                sidebar_date_to = st.text_input("إلى تاريخ", value="", key="financial_to", placeholder="dd-mm-yyyy")
+            show_financial_dates = (
+                report_key == "contract_values"
+                or (report_key == "invoices" and report_view == "period")
+            )
+            sidebar_date_from = None
+            sidebar_date_to = None
+            if show_financial_dates:
+                c_from, c_to = st.columns(2)
+                with c_from:
+                    sidebar_date_from = st.date_input(
+                        "من تاريخ",
+                        value=None,
+                        key="financial_from",
+                        format="DD/MM/YYYY",
+                    )
+                with c_to:
+                    sidebar_date_to = st.date_input(
+                        "إلى تاريخ",
+                        value=None,
+                        key="financial_to",
+                        format="DD/MM/YYYY",
+                    )
             financial_search_clicked = st.button("بحث", key="financial_search_btn", use_container_width=True)
 
     normalized_app_mode = " ".join(str(app_mode or "").split())
