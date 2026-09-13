@@ -307,10 +307,11 @@ def create_primary_category_selector() -> str:
     return " ".join(str(selected).split())
 
 
-def create_financial_report_selector() -> str:
-    """Choose which financial report to display inside the financial-mode branch."""
+def create_financial_report_selector() -> Tuple[str, str]:
+    """Choose the financial report and, where applicable, its view."""
     options = [
         ("حصر قيمة العقود", "contract_values"),
+        ("المستخلصات", "invoices"),
     ]
     selected = st.selectbox(
         "نوع التقرير المالي",
@@ -319,7 +320,17 @@ def create_financial_report_selector() -> str:
         format_func=lambda item: item[0],
         key="financial_report_type",
     )
-    return selected[1]
+    report_key = selected[1]
+    view_key = "period" 
+    if report_key == "invoices":
+        view = st.radio(
+            "طريقة عرض المستخلصات",
+            options=[("مستخلصات خلال فترة زمنية", "period"), ("آخر مستخلص", "latest")],
+            format_func=lambda item: item[0],
+            key="invoice_report_view",
+        )
+        view_key = view[1]
+    return report_key, view_key
 
 
 def create_factory_dropdown() -> Optional[str]:

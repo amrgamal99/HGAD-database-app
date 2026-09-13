@@ -55,6 +55,7 @@ from components.filters import (
     create_financial_report_selector,
 )
 from reports.contract_values import render_contract_values_report
+from reports.invoices import render_invoices_report
 
 # =========================================================
 # Paths / Assets
@@ -1240,6 +1241,7 @@ def main() -> None:
     type_label = None
     type_key = None
     report_key = "contract_values"
+    report_view = "period"
 
     with st.sidebar:
         st.title("عوامل التصفية")
@@ -1280,7 +1282,7 @@ def main() -> None:
                     width=0,
                 )
         else:
-            report_key = create_financial_report_selector()
+            report_key, report_view = create_financial_report_selector()
             st.markdown("---")
             c_from, c_to = st.columns(2)
             with c_from:
@@ -1297,6 +1299,14 @@ def main() -> None:
                 return
             render_contract_values_report(
                 conn,
+                date_from=sidebar_date_from if "sidebar_date_from" in locals() else None,
+                date_to=sidebar_date_to if "sidebar_date_to" in locals() else None,
+            )
+            return
+        if report_key == "invoices":
+            render_invoices_report(
+                conn,
+                view_key=report_view,
                 date_from=sidebar_date_from if "sidebar_date_from" in locals() else None,
                 date_to=sidebar_date_to if "sidebar_date_to" in locals() else None,
             )

@@ -433,3 +433,60 @@ def fetch_contract_summary_view(
     except Exception as e:
         st.caption(f"⚠️ fetch_contract_summary_view error: {e}")
         return pd.DataFrame()
+
+
+# Equivalent to the invoice CTE used by the reporting layer. Supabase exposes
+# PostgREST here, so the base rows are fetched once and the same aggregation is
+# performed in utils.data_helpers rather than interpolating SQL values.
+INVOICE_AGGREGATION_SQL = '''
+WITH inv_agg AS (
+    SELECT contractid,
+           COALESCE(SUM("إجمالي المستخلص شامل الضريبة"),
+                    SUM("قيمة المستخلص قبل الخصومات"), 0) AS حجم_الاعمال,
+           COALESCE(SUM("خصم دفعة مقدمة"), 0)
+             + COALESCE(SUM("خصم دفعة مقدمة 2"), 0) AS مجموع_خصم_مقدمه
+    FROM public.invoice GROUP BY contractid
+), inv_agg_period AS (
+    SELECT contractid,
+           COALESCE(SUM("إجمالي المستخلص شامل الضريبة"),
+                    SUM("قيمة المستخلص قبل الخصومات"), 0) AS حجم_الاعمال_الفترة
+    FROM public.invoice
+    WHERE "تاريخ إصدار المستخلص" BETWEEN :start_date AND :end_date
+    GROUP BY contractid
+)
+'''
+
+
+@st.cache_data(show_spinner=False)
+def fetch_invoice_report_data(
+    _supabase: Client,
+    date_from=None,
+    date_to=None,
+) -> pd.DataFrame:
+    """Fetch invoices and attach contract, company, and factory labels."""
+    if _supabase is None:
+        return pd.DataFrame()
+    try:
+        invoice_query = _supabase.table("invoice").select("*")
+        if date_from:
+            invoice_query = invoice_query.gte("تاريخ إصدار المستخلص", str(date_from))
+        if date_to:
+            invoice_query = invoice_query.lte("تاريخ إصدار المستخلص", str(date_to))
+        invoice_df = pd.DataFrame(invoice_query.execute().data or [])
+        if invoice_df.empty:
+            return invoice_df
+
+        contract_df = pd.DataFrame(
+            _supabase.table("contract").select('contractid, companyid, "اسم المشروع"').execute().data or []
+        )
+        company_df = pd.DataFrame(
+            _supabase.table("company").select("companyid, companyname, factoryname").execute().data or []
+        )
+        if not contract_df.empty and "contractid" in invoice_df.columns:
+            invoice_df = invoice_df.merge(contract_df, on="contractid", how="left", suffixes=("", "_contract"))
+        if not company_df.empty and "companyid" in invoice_df.columns:
+            invoice_df = invoice_df.merge(company_df, on="companyid", how="left", suffixes=("", "_company"))
+        return invoice_df
+    except Exception as e:
+        st.caption(f"⚠️ fetch_invoice_report_data error: {e}")
+        return pd.DataFrame()

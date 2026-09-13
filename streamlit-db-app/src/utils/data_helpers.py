@@ -199,3 +199,66 @@ def build_contract_value_details(df: pd.DataFrame) -> pd.DataFrame:
 
     details = details[final_columns].copy()
     return details.sort_values(["اسم المصنع", "اسم الشركة"], na_position="last")
+
+
+def _invoice_value_column(df: pd.DataFrame) -> str | None:
+    for column in ("إجمالي المستخلص شامل الضريبة", "قيمة المستخلص قبل الخصومات"):
+        if column in df.columns:
+            return column
+    return None
+
+
+def prepare_invoice_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize invoice dates, labels, and numeric fields for reporting."""
+    work = df.copy() if df is not None else pd.DataFrame()
+    if work.empty:
+        return work
+    for source, target in (("factoryname", "مصنع"), ("companyname", "اسم الشركة")):
+        if source in work.columns and target not in work.columns:
+            work[target] = work[source]
+    if "factoryname" in work.columns:
+        work["مصنع"] = work["مصنع"].fillna(work["factoryname"])
+    if "تاريخ إصدار المستخلص" in work.columns:
+        work["تاريخ إصدار المستخلص"] = pd.to_datetime(
+            work["تاريخ إصدار المستخلص"], errors="coerce"
+        )
+    for column in work.columns:
+        if column not in {"contractid", "companyid"} and column not in {"تاريخ إصدار المستخلص"}:
+            converted = pd.to_numeric(work[column], errors="coerce")
+            if converted.notna().any():
+                work[column] = converted
+    return work
+
+
+def invoice_latest_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Return every row tied for the latest invoice date per contract/factory."""
+    work = prepare_invoice_dataframe(df)
+    if work.empty or "تاريخ إصدار المستخلص" not in work.columns:
+        return work
+    group_columns = [column for column in ("contractid", "مصنع") if column in work.columns]
+    if not group_columns:
+        return work.loc[work["تاريخ إصدار المستخلص"].eq(work["تاريخ إصدار المستخلص"].max())].copy()
+    max_dates = work.groupby(group_columns, dropna=False)["تاريخ إصدار المستخلص"].transform("max")
+    return work.loc[work["تاريخ إصدار المستخلص"].eq(max_dates)].copy()
+
+
+def invoice_numeric_summary(df: pd.DataFrame, group_by_factory: bool = False) -> pd.DataFrame:
+    """Sum numeric invoice columns, including the requested work-volume metric."""
+    work = prepare_invoice_dataframe(df)
+    if work.empty:
+        return pd.DataFrame()
+    value_column = _invoice_value_column(work)
+    if value_column:
+        work["حجم الأعمال"] = work[value_column].fillna(0)
+        fallback = work.get("قيمة المستخلص قبل الخصومات")
+        if fallback is not None and value_column != "قيمة المستخلص قبل الخصومات":
+            work["حجم الأعمال"] = work[value_column].where(work[value_column].notna(), fallback).fillna(0)
+    numeric_columns = work.select_dtypes(include="number").columns.tolist()
+    numeric_columns = [column for column in numeric_columns if not column.lower().endswith("id")]
+    if "حجم الأعمال" in work.columns and "حجم الأعمال" not in numeric_columns:
+        numeric_columns.append("حجم الأعمال")
+    if not numeric_columns:
+        return pd.DataFrame()
+    if group_by_factory and "مصنع" in work.columns:
+        return work.groupby("مصنع", dropna=False)[numeric_columns].sum().reset_index()
+    return pd.DataFrame([work[numeric_columns].sum(numeric_only=True)])
