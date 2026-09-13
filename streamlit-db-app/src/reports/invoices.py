@@ -42,7 +42,13 @@ def _download_excel(df: pd.DataFrame, filename: str):
     with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="المستخلصات")
         writer.sheets["المستخلصات"].right_to_left()
-    st.download_button("تنزيل Excel", buffer.getvalue(), filename=filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.download_button(
+        label="تنزيل Excel",
+        data=buffer.getvalue(),
+        file_name=filename,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="invoice_excel_download",
+    )
 
 
 def render_invoices_report(conn: Optional[Client], view_key: str = "period", date_from=None, date_to=None) -> None:
@@ -68,7 +74,10 @@ def render_invoices_report(conn: Optional[Client], view_key: str = "period", dat
     _show_summary(df)
     display_df = df.copy()
     if "تاريخ إصدار المستخلص" in display_df.columns:
-        display_df["تاريخ إصدار المستخلص"] = display_df["تاريخ إصدار المستخلص"].dt.strftime("%Y-%m-%d")
+        parsed_dates = pd.to_datetime(
+            display_df["تاريخ إصدار المستخلص"], errors="coerce", utc=True
+        )
+        display_df["تاريخ إصدار المستخلص"] = parsed_dates.dt.strftime("%Y-%m-%d").fillna("")
     st.markdown("### تفاصيل المستخلصات")
     st.dataframe(display_df, use_container_width=True, hide_index=True)
     _download_excel(display_df, "تقرير_المستخلصات.xlsx")
