@@ -887,6 +887,7 @@ def _pdf_table(
             raw = r[c]
             sval = "" if (raw is None or (isinstance(raw, float) and pd.isna(raw))) else str(raw)
             col_str = str(c)
+            certificate_name = col_str == "اسم الشهادة"
 
             # % sign for نسبة الاعمال المنفذة (belt-and-suspenders)
             if _is_percentage_col(col_str) and sval and not sval.strip().endswith("%"):
@@ -895,6 +896,9 @@ def _pdf_table(
             if sval.startswith(("http://", "https://")) or ("رابط" in col_str and sval):
                 html = f'<link href="{sval}">{_shape("فتح الرابط")}</link>'
                 cells.append(Paragraph(html, link_style))
+            elif certificate_name:
+                # Keep the certificate name, spaces, commas, and trailing number unchanged.
+                cells.append(Paragraph(sval, cell_rtl))
             elif looks_arabic(sval) or not sval.strip():
                 # Arabic text or empty — use Arabic font, right-aligned
                 cells.append(Paragraph(_shape(sval), cell_rtl))
