@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 from typing import Dict, Optional, Tuple
-import re
 
 # تهيئة عميل Supabase مرة واحدة
 @st.cache_resource
@@ -275,21 +274,6 @@ def fetch_data(supabase: Client, company_name: str, project_name: str, target_ta
                     df[col] = pd.to_datetime(df[col]).dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
-
-        if tbl == "social_insurance_certificate" and "اسم الشهادة" in df.columns:
-            try:
-                def normalize_name(val):
-                    if pd.isna(val):
-                        return "شهاده تامينات جاري"
-                    s = str(val).strip()
-                    m = re.search(r'([0-9\u0660-\u0669\u06F0-\u06F9]+)', s)
-                    if m:
-                        num = m.group(1)
-                        return f"شهاده تامينات جاري {num}"
-                    return "شهاده تامينات جاري"
-                df["اسم الشهادة"] = df["اسم الشهادة"].apply(normalize_name)
-            except Exception:
-                pass
 
         if tbl in ["invoice", "checks", "social_insurance_certificate"] and not df.empty:
             date_cols = [c for c in df.columns if "تاريخ" in c or "إصدار" in c]

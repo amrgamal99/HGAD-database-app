@@ -780,6 +780,8 @@ def _format_numbers_for_display(df: pd.DataFrame, no_comma_cols: Optional[List[s
     for c in out.columns:
         if _is_date_col(c) or _is_percentage_col(c):
             continue
+        if c == "اسم الشهادة":
+            continue
         if _normalize_name(c) in no_comma:
             out[c] = out[c].map(_fmt_integer_no_comma)
         else:
