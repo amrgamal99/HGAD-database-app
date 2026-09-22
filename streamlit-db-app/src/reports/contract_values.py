@@ -268,6 +268,12 @@ MANUAL_CONTRACT_ENTRIES = [
         "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "اتريم"
     },
     {
+        "contractid": 56, "companyid": 36, "اسم المشروع": "EASTSHIRE",
+        "تاريخ التعاقد": "2025-10-22", "قيمة التعاقد": 528525,
+        "رابط نسخة العقد": None,
+        "قيمه التعاقد شامله الضريبه": "لا", "الملاحظات": None, "company": None, "factoryname": "النجمع", "companyname": "القمزي"
+    },
+    {
         "contractid": 21, "companyid": 12, "اسم المشروع": "VO1 عمارات حدائق نور",
         "تاريخ التعاقد": "2025-09-29", "قيمة التعاقد": 54017429,
         "رابط نسخة العقد": "https://drive.google.com/file/d/1CXnPwVop7UT_oQzLpTjd3kLNFJOGH6kP/view?usp=drive_link",
