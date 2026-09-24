@@ -268,6 +268,12 @@ MANUAL_CONTRACT_ENTRIES = [
         "قيمه التعاقد شامله الضريبه": "نعم", "الملاحظات": None, "company": None, "factoryname": "بدر", "companyname": "اتريم"
     },
     {
+        "contractid": 32, "companyid": 6, "اسم المشروع": "عقد جورا الجديد 2026 ألوميتال- عماره 06",
+        "تاريخ التعاقد": "2026-07-05", "قيمة التعاقد": 4250000,
+        "رابط نسخة العقد": "https://drive.google.com/file/d/1ftX25VKkpYuAMx_331Lg_dt-QzD7YUGY/view?usp=drive_link",
+        "قيمه التعاقد شامله الضريبه": "لا", "الملاحظات": None, "company": None, "factoryname": "النجمع", "companyname": "نيو جيرسي"
+    },
+    {
         "contractid": 56, "companyid": 36, "اسم المشروع": "EASTSHIRE",
         "تاريخ التعاقد": "2025-10-22", "قيمة التعاقد": 528525,
         "رابط نسخة العقد": None,
