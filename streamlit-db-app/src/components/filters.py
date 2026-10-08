@@ -324,7 +324,7 @@ def create_financial_report_selector() -> Tuple[str, str]:
     view_key = "period"
     if report_key == "invoices":
         view = st.selectbox(
-            "نوع عرض المستخلصات",
+            "طريقة العرض",
             options=[("مستخلصات خلال فترة زمنية", "period"), ("آخر مستخلص", "latest")],
             index=0,
             format_func=lambda item: item[0],

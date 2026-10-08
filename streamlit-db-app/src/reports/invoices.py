@@ -31,8 +31,8 @@ VIEW_TITLES = {
     VIEW_LATEST: "آخر مستخلص",
 }
 
-# Label of the view filter (change this text to rename the filter).
-VIEW_FILTER_LABEL = "طريقة عرض المستخلصات"
+# Label of the standalone single-select invoice view filter.
+VIEW_FILTER_LABEL = "طريقة العرض"
 
 CARDS_PER_ROW = 3
 
