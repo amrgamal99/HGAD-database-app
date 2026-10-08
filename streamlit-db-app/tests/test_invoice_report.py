@@ -11,6 +11,7 @@ from reports.invoices import (
     VIEW_PERIOD,
     _prepare_display_dataframe,
     _should_render_work_volume_card,
+    _format_display_dates,
 )
 
 
@@ -105,8 +106,45 @@ def test_invoice_details_keep_pre_renamed_columns():
     ]
 
 
+def test_all_null_columns_are_removed_and_dates_are_clean():
+    source = pd.DataFrame(
+        {
+            "اسم المصنع": ["التجمع", "بدر"],
+            "اسم الشركة": [None, None],
+            "تاريخ إصدار المستخلص": ["2025-12-15 00:00:00", "2025-12-16 00:00:00"],
+            "لو يوجد مقدار": [None, None],
+        }
+    )
+
+    display_df, _ = _prepare_display_dataframe(source)
+    display_df = _format_display_dates(display_df)
+
+    assert "اسم الشركة" not in display_df.columns
+    assert "لو يوجد مقدار" not in display_df.columns
+    assert display_df["تاريخ إصدار المستخلص"].tolist() == [
+        "2025-12-15",
+        "2025-12-16",
+    ]
+
+
+def test_latest_view_removes_factory_column():
+    source = pd.DataFrame(
+        {
+            "مصنع": ["التجمع"],
+            "تاريخ إصدار المستخلص": ["2025-12-15 00:00:00"],
+        }
+    )
+
+    display_df, _ = _prepare_display_dataframe(source, remove_factory_column=True)
+
+    assert "مصنع" not in display_df.columns
+    assert "اسم المصنع" not in display_df.columns
+
+
 if __name__ == "__main__":
     test_invoice_details_reorder_names_keep_all_columns_and_sort_by_date()
     test_invoice_details_remove_duplicate_renamed_columns()
     test_invoice_details_keep_pre_renamed_columns()
+    test_all_null_columns_are_removed_and_dates_are_clean()
+    test_latest_view_removes_factory_column()
     print("PASS: invoice details contract")

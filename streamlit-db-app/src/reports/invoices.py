@@ -104,7 +104,7 @@ def _should_render_work_volume_card(view_key: str) -> bool:
 
 
 def _render_work_volume_cards(df: pd.DataFrame) -> None:
-    """Render one work-volume metric card per factory."""
+    """Render work-volume values as attractive cards for each factory."""
     summary = invoice_numeric_summary(df, group_by_factory=True)
     if summary.empty or "مصنع" not in summary.columns:
         st.info("لا توجد بيانات لحجم الأعمال لكل مصنع.")
@@ -112,17 +112,55 @@ def _render_work_volume_cards(df: pd.DataFrame) -> None:
 
     summary = summary[["مصنع", "حجم الأعمال"]].dropna(subset=["مصنع"])
     summary = summary.reset_index(drop=True)
+    if summary.empty:
+        st.info("لا توجد بيانات لحجم الأعمال لكل مصنع.")
+        return
+
+    st.markdown(
+        """
+        <style>
+        .work-card {
+            background: linear-gradient(135deg, #1f4e79, #173b5e);
+            border: 1px solid rgba(209, 229, 244, 0.22);
+            border-radius: 14px;
+            padding: 15px 18px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.25);
+            text-align: right;
+        }
+        .work-card-factory {
+            color: #dceeff;
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .work-card-value {
+            color: #ffcf7a;
+            font-size: 22px;
+            font-weight: 800;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     columns = st.columns(max(1, min(3, len(summary))))
     for column, row in zip(columns, summary.to_dict("records")):
         with column:
-            st.metric(
-                label=str(row["مصنع"]),
-                value=f"{float(row['حجم الأعمال'] or 0):,.2f}",
+            st.markdown(
+                f"""
+                <div class="work-card">
+                    <div class="work-card-factory">{str(row['مصنع'])}</div>
+                    <div class="work-card-value">{float(row['حجم الأعمال'] or 0):,.2f}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
 
-def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """Keep all data columns except internal identifiers, and make the invoice link clickable."""
+def _prepare_display_dataframe(
+    df: pd.DataFrame,
+    remove_factory_column: bool = False,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Keep usable data columns, normalize dates, and make the invoice link clickable."""
     work = df.copy()
     excluded_columns = {
         "invoiceid",
@@ -133,6 +171,7 @@ def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str
     }
     work = work.loc[:, [column for column in work.columns if column not in excluded_columns]]
     work = work.loc[:, ~pd.Index(work.columns).duplicated()]
+    work = work.loc[:, work.notna().any(axis=0)]
 
     factory_source = _first_existing(work, ("factoryname", "مصنع"))
     company_source = _first_existing(work, ("companyname",))
@@ -161,6 +200,16 @@ def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str
     if link_source:
         display_df = display_df.rename(columns={link_source: "رابط نسخة المستخلص"})
 
+    if remove_factory_column:
+        display_df = display_df.drop(
+            columns=[
+                column
+                for column in ("مصنع", "اسم المصنع")
+                if column in display_df.columns
+            ],
+            errors="ignore",
+        )
+
     renamed_columns = [
         column for column in ("اسم المصنع", "اسم الشركة", "اسم العقد")
         if column in display_df.columns
@@ -179,6 +228,7 @@ def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str
             kind="mergesort",
         ).reset_index(drop=True)
 
+    display_df = _format_display_dates(display_df)
     link_columns = ["رابط نسخة المستخلص"] if link_source else []
     return display_df, link_columns
 
@@ -259,7 +309,10 @@ def render_invoices_report(
 
     st.divider()
     st.markdown("### تفاصيل المستخلصات")
-    display_df, link_columns = _prepare_display_dataframe(df)
+    display_df, link_columns = _prepare_display_dataframe(
+        df,
+        remove_factory_column=view_key == VIEW_LATEST,
+    )
     column_config = {
         column: st.column_config.LinkColumn(
             label="رابط نسخة مستخلص",
