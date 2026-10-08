@@ -134,18 +134,30 @@ def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str
     work = work.loc[:, [column for column in work.columns if column not in excluded_columns]]
     work = work.loc[:, ~pd.Index(work.columns).duplicated()]
 
-    factory_source = _first_existing(work, ("factoryname", "مصنع", "اسم المصنع"))
-    company_source = _first_existing(work, ("companyname", "اسم الشركة"))
-    contract_source = _first_existing(work, ("اسم المشروع", "اسم العقد", "contractname"))
+    factory_source = _first_existing(work, ("factoryname", "مصنع"))
+    company_source = _first_existing(work, ("companyname",))
+    contract_source = _first_existing(work, ("اسم المشروع", "contractname"))
     link_source = _first_existing(work, _INVOICE_LINK_ALIASES)
 
     display_df = work.copy()
-    if factory_source:
-        display_df = display_df.rename(columns={factory_source: "اسم المصنع"})
-    if company_source:
-        display_df = display_df.rename(columns={company_source: "اسم الشركة"})
-    if contract_source:
-        display_df = display_df.rename(columns={contract_source: "اسم العقد"})
+    if factory_source and factory_source != "اسم المصنع":
+        if "اسم المصنع" in display_df.columns:
+            display_df = display_df.drop(columns=factory_source)
+        else:
+            display_df = display_df.rename(columns={factory_source: "اسم المصنع"})
+
+    if company_source and company_source != "اسم الشركة":
+        if "اسم الشركة" in display_df.columns:
+            display_df = display_df.drop(columns=company_source)
+        else:
+            display_df = display_df.rename(columns={company_source: "اسم الشركة"})
+
+    if contract_source and contract_source != "اسم العقد":
+        if "اسم العقد" in display_df.columns:
+            display_df = display_df.drop(columns=contract_source)
+        else:
+            display_df = display_df.rename(columns={contract_source: "اسم العقد"})
+
     if link_source:
         display_df = display_df.rename(columns={link_source: "رابط نسخة المستخلص"})
 

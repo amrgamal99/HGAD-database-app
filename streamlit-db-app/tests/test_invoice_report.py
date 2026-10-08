@@ -69,6 +69,44 @@ def test_invoice_details_reorder_names_keep_all_columns_and_sort_by_date():
     assert link_columns == ["رابط نسخة المستخلص"]
 
 
+def test_invoice_details_remove_duplicate_renamed_columns():
+    source = pd.DataFrame(
+        {
+            "factoryname": "التجمع",
+            "اسم المصنع": "التجمع",
+            "companyname": "شركة مثال",
+            "اسم الشركة": "شركة مثال",
+            "تاريخ إصدار المستخلص": ["2026-10-01"],
+        }
+    )
+
+    display_df, _ = _prepare_display_dataframe(source)
+
+    assert not display_df.columns.duplicated().any()
+    assert display_df["اسم المصنع"].tolist() == ["التجمع"]
+    assert display_df["اسم الشركة"].tolist() == ["شركة مثال"]
+
+
+def test_invoice_details_keep_pre_renamed_columns():
+    source = pd.DataFrame(
+        {
+            "اسم المصنع": ["التجمع"],
+            "اسم الشركة": ["شركة مثال"],
+            "اسم العقد": ["عقد تجريبي"],
+        }
+    )
+
+    display_df, _ = _prepare_display_dataframe(source)
+
+    assert display_df.columns.tolist() == [
+        "اسم المصنع",
+        "اسم الشركة",
+        "اسم العقد",
+    ]
+
+
 if __name__ == "__main__":
     test_invoice_details_reorder_names_keep_all_columns_and_sort_by_date()
+    test_invoice_details_remove_duplicate_renamed_columns()
+    test_invoice_details_keep_pre_renamed_columns()
     print("PASS: invoice details contract")
