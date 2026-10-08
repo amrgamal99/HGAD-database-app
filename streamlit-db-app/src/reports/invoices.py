@@ -95,24 +95,45 @@ def _drop_id_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """Expose business names and links while hiding internal join columns."""
-    display_df = _drop_id_columns(_format_display_dates(df))
-    rename_map = {}
-    if "اسم المشروع" in display_df.columns:
-        rename_map["اسم المشروع"] = "اسم العقد"
-    for column in _INVOICE_LINK_ALIASES:
-        if column in display_df.columns:
-            rename_map[column] = "رابط نسخة مستخلص"
-            break
-    display_df = display_df.rename(columns=rename_map)
-    link_columns = [
-        "رابط نسخة مستخلص"
-        if "رابط نسخة مستخلص" in display_df.columns
-        else column
-        for column in ("رابط نسخة مستخلص",)
-        if column in display_df.columns
-    ]
-    return display_df, link_columns
+    """Build public invoice details from the requested canonical columns."""
+    work = df.copy()
+    if DATE_COLUMN in work.columns:
+        work[DATE_COLUMN] = pd.to_datetime(work[DATE_COLUMN], errors="coerce")
+
+    factory_source = next(
+        (column for column in ("factoryname", "مصنع", "اسم المصنع") if column in work.columns),
+        None,
+    )
+    company_source = next(
+        (column for column in ("companyname", "اسم الشركة") if column in work.columns),
+        None,
+    )
+    contract_source = next(
+        (column for column in ("اسم المشروع", "اسم العقد", "contractname") if column in work.columns),
+        None,
+    )
+    link_source = next(
+        (column for column in _INVOICE_LINK_ALIASES if column in work.columns),
+        None,
+    )
+
+    display_df = pd.DataFrame({
+        "اسم المصنع": work[factory_source] if factory_source else None,
+        "اسم الشركة": work[company_source] if company_source else None,
+        "اسم العقد": work[contract_source] if contract_source else None,
+        DATE_COLUMN: work[DATE_COLUMN] if DATE_COLUMN in work.columns else None,
+    })
+    if link_source:
+        display_df["رابط نسخة المستخلص"] = work[link_source]
+
+    if not display_df.empty:
+        display_df = display_df.sort_values(
+            by=DATE_COLUMN,
+            ascending=True,
+            na_position="last",
+        )
+    display_df = _format_display_dates(display_df)
+    return display_df, ["رابط نسخة المستخلص"] if "رابط نسخة المستخلص" in display_df.columns else []
 
 
 def _to_excel_bytes(df: pd.DataFrame, sheet_name: str) -> bytes:
@@ -127,54 +148,47 @@ def _to_excel_bytes(df: pd.DataFrame, sheet_name: str) -> bytes:
 # Summary sections
 # ─────────────────────────────────────────────────────────────────────────
 
-def _render_totals_section(df: pd.DataFrame) -> None:
-    st.markdown(
-        "<div class='cv-section-title'>إجمالي كل الأعمدة</div>",
-        unsafe_allow_html=True,
-    )
-    overall_totals = invoice_numeric_summary(df, group_by_factory=False)
-    st.dataframe(overall_totals, use_container_width=True, hide_index=True)
-
-    st.markdown(
-        "<div class='cv-section-title'>إجمالي كل الأعمدة على حسب كل مصنع</div>",
-        unsafe_allow_html=True,
-    )
-    factory_totals = invoice_numeric_summary(df, group_by_factory=True)
-    if factory_totals.empty:
-        st.info("لا تتوفر بيانات المصنع لهذه المستخلصات.")
-    else:
-        st.dataframe(factory_totals, use_container_width=True, hide_index=True)
-
-
 def _render_work_volume_section(df: pd.DataFrame) -> None:
     st.markdown(
-        "<div class='cv-section-title'>حجم الأعمال</div>",
+        "<div class='cv-section-title'>حجم الأعمال لكل مصنع</div>",
         unsafe_allow_html=True,
     )
-    overall_totals = invoice_numeric_summary(df, group_by_factory=False)
-    overall_volume = (
-        float(overall_totals["حجم الأعمال"].iloc[0])
-        if "حجم الأعمال" in overall_totals.columns and not overall_totals.empty
-        else 0.0
-    )
-    st.markdown(
-        f"""
-        <div class="invoice-total-card">
-            <div class="invoice-total-label">حجم الأعمال الإجمالي</div>
-            <div class="invoice-total-value">{overall_volume:,.2f}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     factory_volume = invoice_numeric_summary(df, group_by_factory=True)
-    if "حجم الأعمال" in factory_volume.columns:
-        factory_volume = factory_volume[[FACTORY_COLUMN, "حجم الأعمال"]]
-    st.markdown("##### حجم الأعمال لكل مصنع")
-    if isinstance(factory_volume, pd.DataFrame) and not factory_volume.empty:
-        st.dataframe(factory_volume, use_container_width=True, hide_index=True)
-    else:
+    if factory_volume.empty or FACTORY_COLUMN not in factory_volume.columns:
         st.info("لا تتوفر بيانات المصنع لهذه المستخلصات.")
+        return
+
+    factory_volume = factory_volume[[FACTORY_COLUMN, "حجم الأعمال"]].dropna(
+        subset=[FACTORY_COLUMN]
+    )
+    factory_volume["حجم الأعمال"] = pd.to_numeric(
+        factory_volume["حجم الأعمال"], errors="coerce"
+    ).fillna(0)
+    factory_volume = factory_volume.sort_values(
+        by="حجم الأعمال", ascending=False, na_position="last"
+    )
+    if factory_volume.empty:
+        st.info("لا تتوفر بيانات المصنع هذه المستخلصات.")
+        return
+
+    card_columns = st.columns(
+        max(1, min(len(factory_volume), 3)),
+        gap="small",
+    )
+    for card_index, row in factory_volume.iterrows():
+        factory_name = str(row[FACTORY_COLUMN] or "مصنع غير معروف")
+        volume = float(row["حجم الأعمال"] or 0)
+        with card_columns[card_index % len(card_columns)]:
+            st.markdown(
+                f"""
+                <div class="invoice-factory-card">
+                    <div class="invoice-factory-label">{factory_name}</div>
+                    <div class="invoice-factory-value">{volume:,.2f}</div>
+                    <div class="invoice-factory-caption">حجم الأعمال</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
 def _render_summary(df: pd.DataFrame) -> None:
@@ -191,7 +205,7 @@ def _render_summary(df: pd.DataFrame) -> None:
             padding-right: 10px;
             border-right: 4px solid #60a5fa;
         }
-        .invoice-total-card {
+        .invoice-factory-card {
             direction: rtl;
             border-radius: 20px;
             padding: 20px 22px;
@@ -199,24 +213,29 @@ def _render_summary(df: pd.DataFrame) -> None:
             background: linear-gradient(135deg, #1d3a63 0%, #0c1728 100%);
             border: 1px solid rgba(148,163,184,0.18);
             box-shadow: 0 12px 30px rgba(2,6,23,0.4);
+            text-align: center;
         }
-        .invoice-total-label {
-            color: #a5b4cf;
-            font-size: 14px;
+        .invoice-factory-label {
+            color: #cbd5e1;
+            font-size: 15px;
             font-weight: 700;
             margin-bottom: 8px;
         }
-        .invoice-total-value {
+        .invoice-factory-value {
             color: #f8fafc;
-            font-size: 36px;
+            font-size: 28px;
             font-weight: 800;
+        }
+        .invoice-factory-caption {
+            color: #60a5fa;
+            font-size: 12px;
+            font-weight: 700;
+            margin-top: 6px;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    _render_totals_section(df)
-    st.divider()
     _render_work_volume_section(df)
 
 
