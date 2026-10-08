@@ -16,19 +16,14 @@ import streamlit as st
 from supabase import Client
 
 from db.connection import fetch_invoice_report_data
-from utils.data_helpers import (
-    invoice_latest_rows,
-    invoice_numeric_summary,
-)
 
 DATE_COLUMN = "تاريخ إصدار المستخلص"
-FACTORY_COLUMN = "مصنع"
 VIEW_PERIOD = "period"
-VIEW_LATEST = "latest"
+VIEW_TOTAL = "total"
 
 VIEW_TITLES = {
     VIEW_PERIOD: "مستخلصات خلال فترة زمنية",
-    VIEW_LATEST: "آخر مستخلص",
+    VIEW_TOTAL: "حجم الأعمال ككل",
 }
 
 # Label of the standalone single-select invoice view filter.
@@ -103,43 +98,9 @@ def _first_existing(df: pd.DataFrame, candidates: tuple[str, ...]) -> Optional[s
 
 
 def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """
-    Build the invoice details table.
-
-    Only the whitelisted columns below are shown, in this order:
-    اسم المصنع ← اسم الشركة ← اسم العقد ← تاريخ إصدار المستخلص ← الرابط.
-    Any other column (e.g. companyid_contract or other ids) is never included.
-    Rows are sorted ascending by تاريخ إصدار المستخلص.
-    """
-    work = df.copy()
-    if DATE_COLUMN in work.columns:
-        work[DATE_COLUMN] = pd.to_datetime(work[DATE_COLUMN], errors="coerce")
-
-    factory_source = _first_existing(work, ("factoryname", "مصنع", "اسم المصنع"))
-    company_source = _first_existing(work, ("companyname", "اسم الشركة"))
-    contract_source = _first_existing(work, ("اسم المشروع", "اسم العقد", "contractname"))
-    link_source = _first_existing(work, _INVOICE_LINK_ALIASES)
-
-    display_df = pd.DataFrame({
-        "اسم المصنع": work[factory_source] if factory_source else None,
-        "اسم الشركة": work[company_source] if company_source else None,
-        "اسم العقد": work[contract_source] if contract_source else None,
-        DATE_COLUMN: work[DATE_COLUMN] if DATE_COLUMN in work.columns else pd.NaT,
-    })
-    if link_source:
-        display_df["رابط نسخة المستخلص"] = work[link_source]
-
-    # Oldest → newest, rows with no date go last.
-    display_df = display_df.sort_values(
-        by=DATE_COLUMN,
-        ascending=True,
-        na_position="last",
-        kind="mergesort",
-    ).reset_index(drop=True)
-
-    display_df = _format_display_dates(display_df)
-    link_columns = ["رابط نسخة المستخلص"] if link_source else []
-    return display_df, link_columns
+    """Return the complete invoice data unchanged, including every column and order."""
+    display_df = df.copy()
+    return display_df, []
 
 
 def _to_excel_bytes(df: pd.DataFrame, sheet_name: str) -> bytes:
@@ -148,103 +109,6 @@ def _to_excel_bytes(df: pd.DataFrame, sheet_name: str) -> bytes:
         df.to_excel(writer, index=False, sheet_name=sheet_name)
         writer.sheets[sheet_name].right_to_left()
     return buffer.getvalue()
-
-
-# ─────────────────────────────────────────────────────────────────────────
-# Summary section: حجم الأعمال لكل مصنع (flash cards)
-# ─────────────────────────────────────────────────────────────────────────
-
-_CARD_CSS = """
-<style>
-.cv-section-title {
-    direction: rtl;
-    text-align: right;
-    color: #e5e7eb;
-    font-size: 1.15rem;
-    font-weight: 800;
-    margin: 18px 0 10px;
-    padding-right: 10px;
-    border-right: 4px solid #60a5fa;
-}
-.invoice-factory-card {
-    direction: rtl;
-    border-radius: 20px;
-    padding: 20px 22px;
-    margin: 8px 0 18px;
-    background: linear-gradient(135deg, #1d3a63 0%, #0c1728 100%);
-    border: 1px solid rgba(148,163,184,0.18);
-    box-shadow: 0 12px 30px rgba(2,6,23,0.4);
-    text-align: center;
-}
-.invoice-factory-label {
-    color: #cbd5e1;
-    font-size: 15px;
-    font-weight: 700;
-    margin-bottom: 8px;
-}
-.invoice-factory-value {
-    color: #f8fafc;
-    font-size: 28px;
-    font-weight: 800;
-}
-.invoice-factory-caption {
-    color: #60a5fa;
-    font-size: 12px;
-    font-weight: 700;
-    margin-top: 6px;
-}
-</style>
-"""
-
-
-def _render_work_volume_section(df: pd.DataFrame) -> None:
-    st.markdown(
-        "<div class='cv-section-title'>حجم الأعمال لكل مصنع</div>",
-        unsafe_allow_html=True,
-    )
-    factory_volume = invoice_numeric_summary(df, group_by_factory=True)
-    if factory_volume.empty or FACTORY_COLUMN not in factory_volume.columns:
-        st.info("لا تتوفر بيانات المصنع لهذه المستخلصات.")
-        return
-
-    factory_volume = factory_volume[[FACTORY_COLUMN, "حجم الأعمال"]].dropna(
-        subset=[FACTORY_COLUMN]
-    )
-    factory_volume["حجم الأعمال"] = pd.to_numeric(
-        factory_volume["حجم الأعمال"], errors="coerce"
-    ).fillna(0)
-    factory_volume = factory_volume.sort_values(
-        by="حجم الأعمال", ascending=False, na_position="last"
-    ).reset_index(drop=True)
-    if factory_volume.empty:
-        st.info("لا تتوفر بيانات المصنع لهذه المستخلصات.")
-        return
-
-    # One flash card per factory, laid out in rows of CARDS_PER_ROW.
-    records = factory_volume.to_dict("records")
-    for start in range(0, len(records), CARDS_PER_ROW):
-        row_records = records[start:start + CARDS_PER_ROW]
-        columns = st.columns(CARDS_PER_ROW, gap="small")
-        for column, record in zip(columns, row_records):
-            factory_name = str(record[FACTORY_COLUMN] or "مصنع غير معروف")
-            volume = float(record["حجم الأعمال"] or 0)
-            with column:
-                st.markdown(
-                    f"""
-                    <div class="invoice-factory-card">
-                        <div class="invoice-factory-label">{factory_name}</div>
-                        <div class="invoice-factory-value">{volume:,.2f}</div>
-                        <div class="invoice-factory-caption">حجم الأعمال</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-
-def _render_summary(df: pd.DataFrame) -> None:
-    """Only the per-factory work-volume cards (no column totals)."""
-    st.markdown(_CARD_CSS, unsafe_allow_html=True)
-    _render_work_volume_section(df)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -267,9 +131,8 @@ def _load_period_view(
     return df, True
 
 
-def _load_latest_view(conn: Client) -> tuple[pd.DataFrame, bool]:
-    df = fetch_invoice_report_data(conn)
-    return invoice_latest_rows(df), True
+def _load_total_view(conn: Client) -> tuple[pd.DataFrame, bool]:
+    return fetch_invoice_report_data(conn), True
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -298,7 +161,7 @@ def render_invoices_report(
     if view_key == VIEW_PERIOD:
         df, ok = _load_period_view(conn, date_from=date_from, date_to=date_to)
     else:
-        df, ok = _load_latest_view(conn)
+        df, ok = _load_total_view(conn)
 
     if not ok:
         return
@@ -308,8 +171,6 @@ def render_invoices_report(
     if df.empty:
         st.info("لا توجد مستخلصات مطابقة.")
         return
-
-    _render_summary(df)
 
     st.divider()
     st.markdown("### تفاصيل المستخلصات")

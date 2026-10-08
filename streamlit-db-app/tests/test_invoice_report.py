@@ -9,7 +9,7 @@ sys.path.insert(0, str(PROJECT_SRC))
 from reports.invoices import _prepare_display_dataframe
 
 
-def test_invoice_details_use_requested_columns_and_ascending_date():
+def test_invoice_details_preserve_all_columns_in_original_order():
     source = pd.DataFrame(
         {
             "companyid_contract": 1,
@@ -18,25 +18,28 @@ def test_invoice_details_use_requested_columns_and_ascending_date():
             "اسم المشروع": "عقد تجريبي",
             "تاريخ إصدار المستخلص": ["2026-10-02", "2026-10-01"],
             "رابط نسخة المستخلص": "https://example.test/invoice",
-        }
+        },
+        columns=[
+            "companyid_contract",
+            "factoryname",
+            "companyname",
+            "اسم المشروع",
+            "تاريخ إصدار المستخلص",
+            "رابط نسخة المستخلص",
+        ],
     )
 
     display_df, link_columns = _prepare_display_dataframe(source)
 
-    assert list(display_df.columns[:4]) == [
-        "اسم المصنع",
-        "اسم الشركة",
-        "اسم العقد",
-        "تاريخ إصدار المستخلص",
-    ]
-    assert "companyid_contract" not in display_df.columns
+    assert list(display_df.columns) == list(source.columns)
+    assert display_df["companyid_contract"].tolist() == [1, 1]
     assert display_df["تاريخ إصدار المستخلص"].tolist() == [
-        "2026-10-01",
         "2026-10-02",
+        "2026-10-01",
     ]
-    assert link_columns == ["رابط نسخة المستخلص"]
+    assert link_columns == []
 
 
 if __name__ == "__main__":
-    test_invoice_details_use_requested_columns_and_ascending_date()
+    test_invoice_details_preserve_all_columns_in_original_order()
     print("PASS: invoice details contract")
