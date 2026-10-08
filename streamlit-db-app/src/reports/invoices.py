@@ -124,27 +124,29 @@ def _render_work_volume_cards(df: pd.DataFrame) -> None:
 
 
 def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """Preserve all invoice columns while renaming and ordering the first fields."""
+    """Keep every invoice column and place the three renamed identity fields first."""
     work = df.copy()
     factory_source = _first_existing(work, ("factoryname", "مصنع", "اسم المصنع"))
     company_source = _first_existing(work, ("companyname", "اسم الشركة"))
     contract_source = _first_existing(work, ("اسم المشروع", "اسم العقد", "contractname"))
 
-    reordered_columns = [
-        ("اسم المصنع", factory_source),
-        ("اسم الشركة", company_source),
-        ("اسم العقد", contract_source),
+    display_df = work.copy()
+    if factory_source:
+        display_df = display_df.rename(columns={factory_source: "اسم المصنع"})
+    if company_source:
+        display_df = display_df.rename(columns={company_source: "اسم الشركة"})
+    if contract_source:
+        display_df = display_df.rename(columns={contract_source: "اسم العقد"})
+
+    renamed_columns = [
+        column for column in ("اسم المصنع", "اسم الشركة", "اسم العقد")
+        if column in display_df.columns
     ]
     remaining_columns = [
-        column for column in work.columns
-        if column not in {source for _, source in reordered_columns if source}
+        column for column in display_df.columns
+        if column not in renamed_columns
     ]
-    display_df = pd.DataFrame({
-        target: work[source] if source else None
-        for target, source in reordered_columns
-    })
-    for column in remaining_columns:
-        display_df[column] = work[column]
+    display_df = display_df.loc[:, renamed_columns + remaining_columns]
 
     if DATE_COLUMN in display_df.columns:
         display_df = display_df.sort_values(
