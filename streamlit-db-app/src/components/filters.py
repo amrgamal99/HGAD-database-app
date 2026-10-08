@@ -328,7 +328,6 @@ def create_financial_report_selector() -> Tuple[str, str]:
             options=[
                 ("مستخلصات خلال فترة زمنية", "period"),
                 ("آخر مستخلص", "latest"),
-                ("حجم الأعمال ككل", "total"),
             ],
             index=0,
             format_func=lambda item: item[0],

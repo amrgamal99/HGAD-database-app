@@ -21,12 +21,10 @@ from utils.data_helpers import invoice_latest_rows, invoice_numeric_summary
 DATE_COLUMN = "تاريخ إصدار المستخلص"
 VIEW_PERIOD = "period"
 VIEW_LATEST = "latest"
-VIEW_TOTAL = "total"
 
 VIEW_TITLES = {
     VIEW_PERIOD: "مستخلصات خلال فترة زمنية",
     VIEW_LATEST: "آخر مستخلص",
-    VIEW_TOTAL: "حجم الأعمال ككل",
 }
 
 # Label of the standalone single-select invoice view filter.
@@ -124,11 +122,22 @@ def _render_work_volume_cards(df: pd.DataFrame) -> None:
 
 
 def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """Keep every invoice column and place the three renamed identity fields first."""
+    """Keep all data columns except internal identifiers, and make the invoice link clickable."""
     work = df.copy()
+    excluded_columns = {
+        "invoiceid",
+        "companyid",
+        "contractid",
+        "companyid_coontract",
+        "companyid_contract",
+    }
+    work = work.loc[:, [column for column in work.columns if column not in excluded_columns]]
+    work = work.loc[:, ~pd.Index(work.columns).duplicated()]
+
     factory_source = _first_existing(work, ("factoryname", "مصنع", "اسم المصنع"))
     company_source = _first_existing(work, ("companyname", "اسم الشركة"))
     contract_source = _first_existing(work, ("اسم المشروع", "اسم العقد", "contractname"))
+    link_source = _first_existing(work, _INVOICE_LINK_ALIASES)
 
     display_df = work.copy()
     if factory_source:
@@ -137,6 +146,8 @@ def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str
         display_df = display_df.rename(columns={company_source: "اسم الشركة"})
     if contract_source:
         display_df = display_df.rename(columns={contract_source: "اسم العقد"})
+    if link_source:
+        display_df = display_df.rename(columns={link_source: "رابط نسخة المستخلص"})
 
     renamed_columns = [
         column for column in ("اسم المصنع", "اسم الشركة", "اسم العقد")
@@ -155,7 +166,9 @@ def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str
             na_position="last",
             kind="mergesort",
         ).reset_index(drop=True)
-    return display_df, []
+
+    link_columns = ["رابط نسخة المستخلص"] if link_source else []
+    return display_df, link_columns
 
 
 def _to_excel_bytes(df: pd.DataFrame, sheet_name: str) -> bytes:
@@ -191,10 +204,6 @@ def _load_latest_view(conn: Client) -> tuple[pd.DataFrame, bool]:
     return invoice_latest_rows(df), True
 
 
-def _load_total_view(conn: Client) -> tuple[pd.DataFrame, bool]:
-    return fetch_invoice_report_data(conn), True
-
-
 # ─────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────
@@ -220,10 +229,8 @@ def render_invoices_report(
 
     if view_key == VIEW_PERIOD:
         df, ok = _load_period_view(conn, date_from=date_from, date_to=date_to)
-    elif view_key == VIEW_LATEST:
-        df, ok = _load_latest_view(conn)
     else:
-        df, ok = _load_total_view(conn)
+        df, ok = _load_latest_view(conn)
 
     if not ok:
         return

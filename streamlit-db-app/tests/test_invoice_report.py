@@ -22,20 +22,30 @@ def test_work_volume_card_is_visible_only_for_period_view():
 def test_invoice_details_reorder_names_keep_all_columns_and_sort_by_date():
     source = pd.DataFrame(
         {
-            "companyid_contract": 1,
+            "invoiceid": 1,
+            "companyid": 2,
+            "contractid": 3,
+            "companyid_coontract": 4,
+            "companyid_contract": 5,
             "factoryname": "التجمع",
             "companyname": "شركة مثال",
             "اسم المشروع": "عقد تجريبي",
             "تاريخ إصدار المستخلص": ["2026-10-02", "2026-10-01"],
             "رابط نسخة المستخلص": "https://example.test/invoice",
+            "قيمة المستخلص قبل الخصومات": 100,
         },
         columns=[
+            "invoiceid",
+            "companyid",
+            "contractid",
+            "companyid_coontract",
             "companyid_contract",
             "factoryname",
             "companyname",
             "اسم المشروع",
             "تاريخ إصدار المستخلص",
             "رابط نسخة المستخلص",
+            "قيمة المستخلص قبل الخصومات",
         ],
     )
 
@@ -45,9 +55,9 @@ def test_invoice_details_reorder_names_keep_all_columns_and_sort_by_date():
         "اسم المصنع",
         "اسم الشركة",
         "اسم العقد",
-        "companyid_contract",
         "تاريخ إصدار المستخلص",
         "رابط نسخة المستخلص",
+        "قيمة المستخلص قبل الخصومات",
     ]
     assert display_df["اسم المصنع"].tolist() == ["التجمع", "التجمع"]
     assert display_df["اسم الشركة"].tolist() == ["شركة مثال", "شركة مثال"]
@@ -56,7 +66,7 @@ def test_invoice_details_reorder_names_keep_all_columns_and_sort_by_date():
         "2026-10-01",
         "2026-10-02",
     ]
-    assert link_columns == []
+    assert link_columns == ["رابط نسخة المستخلص"]
 
 
 if __name__ == "__main__":
