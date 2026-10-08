@@ -16,13 +16,16 @@ import streamlit as st
 from supabase import Client
 
 from db.connection import fetch_invoice_report_data
+from utils.data_helpers import invoice_latest_rows, invoice_numeric_summary
 
 DATE_COLUMN = "تاريخ إصدار المستخلص"
 VIEW_PERIOD = "period"
+VIEW_LATEST = "latest"
 VIEW_TOTAL = "total"
 
 VIEW_TITLES = {
     VIEW_PERIOD: "مستخلصات خلال فترة زمنية",
+    VIEW_LATEST: "آخر مستخلص",
     VIEW_TOTAL: "حجم الأعمال ككل",
 }
 
@@ -97,9 +100,59 @@ def _first_existing(df: pd.DataFrame, candidates: tuple[str, ...]) -> Optional[s
     return next((column for column in candidates if column in df.columns), None)
 
 
+def _should_render_work_volume_card(view_key: str) -> bool:
+    """Show the work-volume metric only for the period view."""
+    return view_key == VIEW_PERIOD
+
+
+def _render_work_volume_cards(df: pd.DataFrame) -> None:
+    """Render one work-volume metric card per factory."""
+    summary = invoice_numeric_summary(df, group_by_factory=True)
+    if summary.empty or "مصنع" not in summary.columns:
+        st.info("لا توجد بيانات لحجم الأعمال لكل مصنع.")
+        return
+
+    summary = summary[["مصنع", "حجم الأعمال"]].dropna(subset=["مصنع"])
+    summary = summary.reset_index(drop=True)
+    columns = st.columns(max(1, min(3, len(summary))))
+    for column, row in zip(columns, summary.to_dict("records")):
+        with column:
+            st.metric(
+                label=str(row["مصنع"]),
+                value=f"{float(row['حجم الأعمال'] or 0):,.2f}",
+            )
+
+
 def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """Return the complete invoice data unchanged, including every column and order."""
-    display_df = df.copy()
+    """Preserve all invoice columns while renaming and ordering the first fields."""
+    work = df.copy()
+    factory_source = _first_existing(work, ("factoryname", "مصنع", "اسم المصنع"))
+    company_source = _first_existing(work, ("companyname", "اسم الشركة"))
+    contract_source = _first_existing(work, ("اسم المشروع", "اسم العقد", "contractname"))
+
+    reordered_columns = [
+        ("اسم المصنع", factory_source),
+        ("اسم الشركة", company_source),
+        ("اسم العقد", contract_source),
+    ]
+    remaining_columns = [
+        column for column in work.columns
+        if column not in {source for _, source in reordered_columns if source}
+    ]
+    display_df = pd.DataFrame({
+        target: work[source] if source else None
+        for target, source in reordered_columns
+    })
+    for column in remaining_columns:
+        display_df[column] = work[column]
+
+    if DATE_COLUMN in display_df.columns:
+        display_df = display_df.sort_values(
+            by=DATE_COLUMN,
+            ascending=True,
+            na_position="last",
+            kind="mergesort",
+        ).reset_index(drop=True)
     return display_df, []
 
 
@@ -131,6 +184,11 @@ def _load_period_view(
     return df, True
 
 
+def _load_latest_view(conn: Client) -> tuple[pd.DataFrame, bool]:
+    df = fetch_invoice_report_data(conn)
+    return invoice_latest_rows(df), True
+
+
 def _load_total_view(conn: Client) -> tuple[pd.DataFrame, bool]:
     return fetch_invoice_report_data(conn), True
 
@@ -160,6 +218,8 @@ def render_invoices_report(
 
     if view_key == VIEW_PERIOD:
         df, ok = _load_period_view(conn, date_from=date_from, date_to=date_to)
+    elif view_key == VIEW_LATEST:
+        df, ok = _load_latest_view(conn)
     else:
         df, ok = _load_total_view(conn)
 
@@ -171,6 +231,10 @@ def render_invoices_report(
     if df.empty:
         st.info("لا توجد مستخلصات مطابقة.")
         return
+
+    if _should_render_work_volume_card(view_key):
+        st.markdown("### حجم الأعمال لكل مصنع")
+        _render_work_volume_cards(df)
 
     st.divider()
     st.markdown("### تفاصيل المستخلصات")
