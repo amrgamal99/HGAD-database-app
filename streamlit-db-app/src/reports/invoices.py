@@ -31,6 +31,11 @@ VIEW_TITLES = {
     VIEW_LATEST: "آخر مستخلص",
 }
 
+# Label of the view filter (change this text to rename the filter).
+VIEW_FILTER_LABEL = "طريقة عرض المستخلصات"
+
+CARDS_PER_ROW = 3
+
 _INVOICE_LINK_ALIASES = (
     "رابط نسخة مستخلص",
     "رابط نسخة المستخلص",
@@ -42,6 +47,18 @@ _INVOICE_LINK_ALIASES = (
 # ─────────────────────────────────────────────────────────────────────────
 # Small UI building blocks
 # ─────────────────────────────────────────────────────────────────────────
+
+def render_view_filter(default: str = VIEW_PERIOD) -> str:
+    """Dropdown filter (same style as the other filters), not a radio/multi-select."""
+    keys = list(VIEW_TITLES.keys())
+    return st.selectbox(
+        VIEW_FILTER_LABEL,
+        options=keys,
+        index=keys.index(default) if default in keys else 0,
+        format_func=lambda key: VIEW_TITLES[key],
+        key="invoice_view_filter",
+    )
+
 
 def _to_iso_date(value) -> Optional[str]:
     if not value:
@@ -81,59 +98,48 @@ def _format_display_dates(df: pd.DataFrame) -> pd.DataFrame:
     return display_df
 
 
-def _drop_id_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Remove database identifiers from the user-facing invoice table."""
-    return df.drop(
-        columns=[
-            column
-            for column in df.columns
-            if str(column).strip().lower().endswith("id")
-            or str(column).strip().lower() in {"id", "invoiceid"}
-        ],
-        errors="ignore",
-    )
+def _first_existing(df: pd.DataFrame, candidates: tuple[str, ...]) -> Optional[str]:
+    return next((column for column in candidates if column in df.columns), None)
 
 
 def _prepare_display_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """Build public invoice details from the requested canonical columns."""
+    """
+    Build the invoice details table.
+
+    Only the whitelisted columns below are shown, in this order:
+    اسم المصنع ← اسم الشركة ← اسم العقد ← تاريخ إصدار المستخلص ← الرابط.
+    Any other column (e.g. companyid_contract or other ids) is never included.
+    Rows are sorted ascending by تاريخ إصدار المستخلص.
+    """
     work = df.copy()
     if DATE_COLUMN in work.columns:
         work[DATE_COLUMN] = pd.to_datetime(work[DATE_COLUMN], errors="coerce")
 
-    factory_source = next(
-        (column for column in ("factoryname", "مصنع", "اسم المصنع") if column in work.columns),
-        None,
-    )
-    company_source = next(
-        (column for column in ("companyname", "اسم الشركة") if column in work.columns),
-        None,
-    )
-    contract_source = next(
-        (column for column in ("اسم المشروع", "اسم العقد", "contractname") if column in work.columns),
-        None,
-    )
-    link_source = next(
-        (column for column in _INVOICE_LINK_ALIASES if column in work.columns),
-        None,
-    )
+    factory_source = _first_existing(work, ("factoryname", "مصنع", "اسم المصنع"))
+    company_source = _first_existing(work, ("companyname", "اسم الشركة"))
+    contract_source = _first_existing(work, ("اسم المشروع", "اسم العقد", "contractname"))
+    link_source = _first_existing(work, _INVOICE_LINK_ALIASES)
 
     display_df = pd.DataFrame({
         "اسم المصنع": work[factory_source] if factory_source else None,
         "اسم الشركة": work[company_source] if company_source else None,
         "اسم العقد": work[contract_source] if contract_source else None,
-        DATE_COLUMN: work[DATE_COLUMN] if DATE_COLUMN in work.columns else None,
+        DATE_COLUMN: work[DATE_COLUMN] if DATE_COLUMN in work.columns else pd.NaT,
     })
     if link_source:
         display_df["رابط نسخة المستخلص"] = work[link_source]
 
-    if not display_df.empty:
-        display_df = display_df.sort_values(
-            by=DATE_COLUMN,
-            ascending=True,
-            na_position="last",
-        )
+    # Oldest → newest, rows with no date go last.
+    display_df = display_df.sort_values(
+        by=DATE_COLUMN,
+        ascending=True,
+        na_position="last",
+        kind="mergesort",
+    ).reset_index(drop=True)
+
     display_df = _format_display_dates(display_df)
-    return display_df, ["رابط نسخة المستخلص"] if "رابط نسخة المستخلص" in display_df.columns else []
+    link_columns = ["رابط نسخة المستخلص"] if link_source else []
+    return display_df, link_columns
 
 
 def _to_excel_bytes(df: pd.DataFrame, sheet_name: str) -> bytes:
@@ -145,8 +151,51 @@ def _to_excel_bytes(df: pd.DataFrame, sheet_name: str) -> bytes:
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Summary sections
+# Summary section: حجم الأعمال لكل مصنع (flash cards)
 # ─────────────────────────────────────────────────────────────────────────
+
+_CARD_CSS = """
+<style>
+.cv-section-title {
+    direction: rtl;
+    text-align: right;
+    color: #e5e7eb;
+    font-size: 1.15rem;
+    font-weight: 800;
+    margin: 18px 0 10px;
+    padding-right: 10px;
+    border-right: 4px solid #60a5fa;
+}
+.invoice-factory-card {
+    direction: rtl;
+    border-radius: 20px;
+    padding: 20px 22px;
+    margin: 8px 0 18px;
+    background: linear-gradient(135deg, #1d3a63 0%, #0c1728 100%);
+    border: 1px solid rgba(148,163,184,0.18);
+    box-shadow: 0 12px 30px rgba(2,6,23,0.4);
+    text-align: center;
+}
+.invoice-factory-label {
+    color: #cbd5e1;
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+.invoice-factory-value {
+    color: #f8fafc;
+    font-size: 28px;
+    font-weight: 800;
+}
+.invoice-factory-caption {
+    color: #60a5fa;
+    font-size: 12px;
+    font-weight: 700;
+    margin-top: 6px;
+}
+</style>
+"""
+
 
 def _render_work_volume_section(df: pd.DataFrame) -> None:
     st.markdown(
@@ -166,76 +215,35 @@ def _render_work_volume_section(df: pd.DataFrame) -> None:
     ).fillna(0)
     factory_volume = factory_volume.sort_values(
         by="حجم الأعمال", ascending=False, na_position="last"
-    )
+    ).reset_index(drop=True)
     if factory_volume.empty:
-        st.info("لا تتوفر بيانات المصنع هذه المستخلصات.")
+        st.info("لا تتوفر بيانات المصنع لهذه المستخلصات.")
         return
 
-    card_columns = st.columns(
-        max(1, min(len(factory_volume), 3)),
-        gap="small",
-    )
-    for card_index, row in factory_volume.iterrows():
-        factory_name = str(row[FACTORY_COLUMN] or "مصنع غير معروف")
-        volume = float(row["حجم الأعمال"] or 0)
-        with card_columns[card_index % len(card_columns)]:
-            st.markdown(
-                f"""
-                <div class="invoice-factory-card">
-                    <div class="invoice-factory-label">{factory_name}</div>
-                    <div class="invoice-factory-value">{volume:,.2f}</div>
-                    <div class="invoice-factory-caption">حجم الأعمال</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    # One flash card per factory, laid out in rows of CARDS_PER_ROW.
+    records = factory_volume.to_dict("records")
+    for start in range(0, len(records), CARDS_PER_ROW):
+        row_records = records[start:start + CARDS_PER_ROW]
+        columns = st.columns(CARDS_PER_ROW, gap="small")
+        for column, record in zip(columns, row_records):
+            factory_name = str(record[FACTORY_COLUMN] or "مصنع غير معروف")
+            volume = float(record["حجم الأعمال"] or 0)
+            with column:
+                st.markdown(
+                    f"""
+                    <div class="invoice-factory-card">
+                        <div class="invoice-factory-label">{factory_name}</div>
+                        <div class="invoice-factory-value">{volume:,.2f}</div>
+                        <div class="invoice-factory-caption">حجم الأعمال</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
 
 def _render_summary(df: pd.DataFrame) -> None:
-    st.markdown(
-        """
-        <style>
-        .cv-section-title {
-            direction: rtl;
-            text-align: right;
-            color: #e5e7eb;
-            font-size: 1.15rem;
-            font-weight: 800;
-            margin: 18px 0 10px;
-            padding-right: 10px;
-            border-right: 4px solid #60a5fa;
-        }
-        .invoice-factory-card {
-            direction: rtl;
-            border-radius: 20px;
-            padding: 20px 22px;
-            margin: 8px 0 18px;
-            background: linear-gradient(135deg, #1d3a63 0%, #0c1728 100%);
-            border: 1px solid rgba(148,163,184,0.18);
-            box-shadow: 0 12px 30px rgba(2,6,23,0.4);
-            text-align: center;
-        }
-        .invoice-factory-label {
-            color: #cbd5e1;
-            font-size: 15px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-        .invoice-factory-value {
-            color: #f8fafc;
-            font-size: 28px;
-            font-weight: 800;
-        }
-        .invoice-factory-caption {
-            color: #60a5fa;
-            font-size: 12px;
-            font-weight: 700;
-            margin-top: 6px;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    """Only the per-factory work-volume cards (no column totals)."""
+    st.markdown(_CARD_CSS, unsafe_allow_html=True)
     _render_work_volume_section(df)
 
 
@@ -270,15 +278,22 @@ def _load_latest_view(conn: Client) -> tuple[pd.DataFrame, bool]:
 
 def render_invoices_report(
     conn: Optional[Client],
-    view_key: str = VIEW_PERIOD,
+    view_key: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
 ) -> None:
+    """
+    If view_key is None the dropdown filter is rendered here;
+    if the caller already chose a view, pass it in and no filter is shown.
+    """
     st.markdown("<h2 style='text-align:right'>المستخلصات</h2>", unsafe_allow_html=True)
 
     if conn is None:
         st.error("تعذر الاتصال بقاعدة البيانات.")
         return
+
+    if view_key is None:
+        view_key = render_view_filter()
 
     if view_key == VIEW_PERIOD:
         df, ok = _load_period_view(conn, date_from=date_from, date_to=date_to)
