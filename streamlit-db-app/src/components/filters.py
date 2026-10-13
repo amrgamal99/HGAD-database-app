@@ -312,7 +312,7 @@ def create_financial_report_selector() -> Tuple[str, str]:
     options = [
         ("حصر قيمة العقود", "contract_values"),
         ("المستخلصات", "invoices"),
-        ("التحويلات والشيكات", "checks"),
+        ("الشيكات و التحويلات البنكيه", "checks"),
     ]
     selected = st.selectbox(
         "نوع التقرير المالي",

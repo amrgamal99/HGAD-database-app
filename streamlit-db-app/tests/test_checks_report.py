@@ -8,6 +8,7 @@ sys.path.insert(0, str(PROJECT_SRC))
 
 from reports.checks import (
     CHECK_COLUMNS,
+    _factory_cards_html,
     _factory_check_summary,
     _prepare_display_dataframe,
 )
@@ -59,3 +60,25 @@ def test_factory_summary_totals_and_normalizes_purpose_variants():
     assert summary.loc["بدر", "دفعة مقدمة"] == 100
     assert summary.loc["بدر", "رد تامينات اجتماعيه"] == 200
     assert summary.loc["بدر", "سداد مستخلص"] == 300
+
+
+def test_factory_cards_render_full_amounts_without_ellipsis():
+    summary = pd.DataFrame(
+        [
+            {
+                "اسم المصنع": "بدر",
+                "الإجمالي": 262520893.79,
+                "دفعة مقدمة": 291.90,
+                "رد تامينات اجتماعيه": 659.96,
+                "سداد مستخلص": 941.93,
+            }
+        ]
+    )
+
+    card_html = _factory_cards_html(summary)
+
+    assert "262,520,893.79" in card_html
+    assert "291.90" in card_html
+    assert "659.96" in card_html
+    assert "941.93" in card_html
+    assert "..." not in card_html

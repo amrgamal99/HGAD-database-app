@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from io import BytesIO
 from typing import Optional
 
@@ -100,22 +101,46 @@ def _factory_check_summary(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["اسم المصنع", "الإجمالي", *PURPOSE_LABELS.values()])
 
 
+def _factory_cards_html(summary: pd.DataFrame) -> str:
+    cards = []
+    for row in summary.to_dict("records"):
+        categories = "".join(
+            f'<div class="checks-category"><div class="checks-category-label">{html.escape(label)}</div>'
+            f'<div class="checks-category-value" dir="ltr">{float(row[label]):,.2f}</div></div>'
+            for label in PURPOSE_LABELS.values()
+        )
+        cards.append(
+            f'<article class="checks-factory-card" dir="rtl">'
+            f'<h4 class="checks-factory-name">{html.escape(str(row["اسم المصنع"]))}</h4>'
+            f'<div class="checks-total-label">إجمالي الشيكات</div>'
+            f'<div class="checks-total-value" dir="ltr">{float(row["الإجمالي"]):,.2f}</div>'
+            f'<div class="checks-category-grid">{categories}</div>'
+            f'</article>'
+        )
+
+    return (
+        "<style>"
+        ".checks-factory-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:14px;direction:rtl;}"
+        ".checks-factory-card{box-sizing:border-box;min-width:0;padding:18px;border:1px solid #3b4048;border-radius:8px;background:#111419;color:#f4f5f7;text-align:right;}"
+        ".checks-factory-name{margin:0 0 18px;font-size:19px;font-weight:750;line-height:1.4;}"
+        ".checks-total-label{margin-bottom:3px;color:#b7bdc7;font-size:12px;font-weight:600;}"
+        ".checks-total-value{margin-bottom:18px;font-size:28px;font-weight:700;line-height:1.25;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}"
+        ".checks-category-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}"
+        ".checks-category{min-width:0;padding:10px 7px;border-top:1px solid #343943;text-align:center;}"
+        ".checks-category-label{min-height:34px;color:#b7bdc7;font-size:12px;font-weight:600;line-height:1.4;overflow-wrap:anywhere;}"
+        ".checks-category-value{font-size:15px;font-weight:700;line-height:1.4;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}"
+        "@media(max-width:420px){.checks-factory-card{padding:14px;}.checks-category-grid{gap:3px;}.checks-category{padding-inline:3px;}.checks-category-value{font-size:13px;}}"
+        "</style>"
+        f'<div class="checks-factory-grid">{"".join(cards)}</div>'
+    )
+
+
 def _render_factory_cards(df: pd.DataFrame) -> None:
     summary = _factory_check_summary(df)
     if summary.empty:
         st.info("لا توجد بيانات للشيكات خلال الفترة المحددة.")
         return
-
-    for start in range(0, len(summary), 3):
-        columns = st.columns(3)
-        for column, (_, row) in zip(columns, summary.iloc[start:start + 3].iterrows()):
-            with column:
-                with st.container(border=True):
-                    st.markdown(f"#### {row['اسم المصنع']}")
-                    st.metric("إجمالي الشيكات", f"{row['الإجمالي']:,.2f}")
-                    metric_columns = st.columns(3)
-                    for metric_column, label in zip(metric_columns, PURPOSE_LABELS.values()):
-                        metric_column.metric(label, f"{row[label]:,.2f}")
+    st.markdown(_factory_cards_html(summary), unsafe_allow_html=True)
 
 
 def _to_excel_bytes(df: pd.DataFrame) -> bytes:
