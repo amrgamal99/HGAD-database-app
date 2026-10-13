@@ -146,8 +146,97 @@ def _render_factory_cards(df: pd.DataFrame) -> None:
 def _to_excel_bytes(df: pd.DataFrame) -> bytes:
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False, sheet_name="الشيكات")
-        writer.sheets["الشيكات"].right_to_left()
+        from xlsxwriter.utility import xl_col_to_name
+
+        workbook = writer.book
+        sheet_name = "الشيكات"
+        start_row = 5
+        df.to_excel(writer, index=False, sheet_name=sheet_name, startrow=start_row)
+        worksheet = writer.sheets[sheet_name]
+        worksheet.right_to_left()
+        worksheet.hide_gridlines(2)
+        worksheet.set_zoom(110)
+        worksheet.set_row(0, 25)
+        worksheet.set_row(1, 25)
+
+        column_count = len(df.columns)
+        last_column = xl_col_to_name(column_count - 1)
+        title_format = workbook.add_format({
+            "bold": True,
+            "font_size": 16,
+            "align": "center",
+            "valign": "vcenter",
+            "bg_color": "#1F4E78",
+            "font_color": "white",
+            "border": 1,
+            "text_wrap": True,
+        })
+        worksheet.merge_range(
+            f"A1:{last_column}2",
+            "تقرير الشيكات",
+            title_format,
+        )
+
+        row_count = len(df)
+        worksheet.add_table(
+            start_row,
+            0,
+            start_row + row_count,
+            column_count - 1,
+            {
+                "name": "ChecksTable",
+                "style": "Table Style Medium 2",
+                "columns": [{"header": str(column)} for column in df.columns],
+            },
+        )
+
+        widths = {
+            "اسم المصنع": 24,
+            "اسم الشركة": 28,
+            "اسم العقد": 34,
+            "رقم الشيك": 16,
+            CHECK_DATE: 16,
+            "البنك": 22,
+            "قيمة الشيك": 18,
+            "رابط نسخة الشيك": 18,
+            "الغرض من إصدار الشيك": 30,
+            RECEIPT_DATE: 18,
+            "السنة_المالية_المحاسبية": 22,
+        }
+        amount_format = workbook.add_format({"num_format": "#,##0.00"})
+        hyperlink_format = workbook.add_format({
+            "font_color": "blue",
+            "underline": 1,
+        })
+
+        link_column = None
+        for column_index, column in enumerate(df.columns):
+            worksheet.set_column(
+                column_index,
+                column_index,
+                widths.get(str(column), 20),
+                amount_format if column == "قيمة الشيك" else None,
+            )
+            if column == "رابط نسخة الشيك":
+                link_column = column_index
+
+        if link_column is not None:
+            for row_index, value in enumerate(df.iloc[:, link_column], start=start_row + 1):
+                if pd.isna(value):
+                    continue
+                url = str(value).strip()
+                if url.startswith(("http://", "https://")):
+                    worksheet.write_url(
+                        row_index,
+                        link_column,
+                        url,
+                        hyperlink_format,
+                        string="فتح الشيك",
+                    )
+                elif url:
+                    worksheet.write(row_index, link_column, url)
+
+        worksheet.freeze_panes(start_row + 1, 0)
     return buffer.getvalue()
 
 

@@ -1,6 +1,8 @@
 from pathlib import Path
+from io import BytesIO
 import sys
 
+from openpyxl import load_workbook
 import pandas as pd
 
 PROJECT_SRC = Path(__file__).resolve().parents[1] / "src"
@@ -11,6 +13,7 @@ from reports.checks import (
     _factory_cards_html,
     _factory_check_summary,
     _prepare_display_dataframe,
+    _to_excel_bytes,
 )
 
 
@@ -82,3 +85,32 @@ def test_factory_cards_render_full_amounts_without_ellipsis():
     assert "659.96" in card_html
     assert "941.93" in card_html
     assert "..." not in card_html
+
+
+def test_checks_excel_is_formatted_as_rtl_table_with_clickable_anchor():
+    source = pd.DataFrame(
+        {
+            "اسم المصنع": ["بدر"],
+            "اسم الشركة": ["شركة مثال"],
+            "اسم العقد": ["عقد تجريبي"],
+            "رقم الشيك": ["123"],
+            "تاريخ الشيك": ["2026-10-03"],
+            "البنك": ["بنك مثال"],
+            "قيمة الشيك": [1234.5],
+            "رابط نسخة الشيك": ["https://example.test/check"],
+            "الغرض من إصدار الشيك": ["دفعة مقدمة"],
+            "تاريخ استلام شيك": ["2026-10-04"],
+            "السنة_المالية_المحاسبية": [2026],
+        }
+    )
+
+    workbook = load_workbook(BytesIO(_to_excel_bytes(source)))
+    worksheet = workbook["الشيكات"]
+
+    assert worksheet["A1"].value == "تقرير الشيكات"
+    assert worksheet.sheet_view.rightToLeft is True
+    assert worksheet.freeze_panes == "A7"
+    assert worksheet.tables["ChecksTable"].ref == "A6:K7"
+    assert worksheet.tables["ChecksTable"].tableStyleInfo.name == "TableStyleMedium2"
+    assert worksheet["H7"].value == "فتح الشيك"
+    assert worksheet["H7"].hyperlink.target == "https://example.test/check"
