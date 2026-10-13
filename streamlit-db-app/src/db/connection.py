@@ -474,3 +474,50 @@ def fetch_invoice_report_data(
     except Exception as e:
         st.caption(f"⚠️ fetch_invoice_report_data error: {e}")
         return pd.DataFrame()
+
+
+@st.cache_data(show_spinner=False)
+def fetch_checks_report_data(
+    _supabase: Client,
+    date_field: str,
+    date_from=None,
+    date_to=None,
+) -> pd.DataFrame:
+    """Fetch checks filtered by either check date and attach company labels."""
+    allowed_date_fields = {"تاريخ الشيك", "تاريخ استلام شيك"}
+    if _supabase is None or date_field not in allowed_date_fields:
+        return pd.DataFrame()
+    try:
+        query = _supabase.table("checks").select("*")
+        if date_from:
+            query = query.gte(date_field, str(date_from))
+        if date_to:
+            query = query.lte(date_field, str(date_to))
+        checks_df = pd.DataFrame(query.execute().data or [])
+        if checks_df.empty:
+            return checks_df
+
+        contract_df = pd.DataFrame(
+            _supabase.table("contract").select('contractid, companyid, "اسم المشروع"').execute().data or []
+        )
+        company_df = pd.DataFrame(
+            _supabase.table("company").select("companyid, companyname, factoryname").execute().data or []
+        )
+        if not contract_df.empty and "contractid" in checks_df.columns:
+            checks_df = checks_df.merge(
+                contract_df,
+                on="contractid",
+                how="left",
+                suffixes=("", "_contract"),
+            )
+        if not company_df.empty and "companyid" in checks_df.columns:
+            checks_df = checks_df.merge(
+                company_df,
+                on="companyid",
+                how="left",
+                suffixes=("", "_company"),
+            )
+        return checks_df
+    except Exception as e:
+        st.caption(f"⚠️ fetch_checks_report_data error: {e}")
+        return pd.DataFrame()

@@ -56,6 +56,7 @@ from components.filters import (
 )
 from reports.contract_values import render_contract_values_report
 from reports.invoices import render_invoices_report
+from reports.checks import CHECK_DATE, RECEIPT_DATE, render_checks_report
 
 # =========================================================
 # Paths / Assets
@@ -1293,23 +1294,35 @@ def main() -> None:
             show_financial_dates = (
                 report_key == "contract_values"
                 or (report_key == "invoices" and report_view == "period")
+                or (report_key == "checks" and report_view == "period")
             )
             sidebar_date_from = None
             sidebar_date_to = None
+            sidebar_check_date_field = CHECK_DATE
+            if report_key == "checks":
+                sidebar_check_date_field = st.selectbox(
+                    "حقل التاريخ",
+                    options=[CHECK_DATE, RECEIPT_DATE],
+                    format_func=lambda field: {
+                        CHECK_DATE: "تاريخ الشيك",
+                        RECEIPT_DATE: "تاريخ استلام شيك",
+                    }[field],
+                    key="checks_date_field",
+                )
             if show_financial_dates:
                 c_from, c_to = st.columns(2)
                 with c_from:
                     sidebar_date_from = st.date_input(
                         "من تاريخ",
                         value=None,
-                        key="financial_from",
+                        key="checks_financial_from" if report_key == "checks" else "financial_from",
                         format="DD/MM/YYYY",
                     )
                 with c_to:
                     sidebar_date_to = st.date_input(
                         "إلى تاريخ",
                         value=None,
-                        key="financial_to",
+                        key="checks_financial_to" if report_key == "checks" else "financial_to",
                         format="DD/MM/YYYY",
                     )
             financial_search_clicked = st.button("بحث", key="financial_search_btn", use_container_width=True)
@@ -1332,6 +1345,14 @@ def main() -> None:
                 view_key=report_view,
                 date_from=sidebar_date_from if "sidebar_date_from" in locals() else None,
                 date_to=sidebar_date_to if "sidebar_date_to" in locals() else None,
+            )
+            return
+        if report_key == "checks":
+            render_checks_report(
+                conn,
+                date_field=sidebar_check_date_field,
+                date_from=sidebar_date_from,
+                date_to=sidebar_date_to,
             )
             return
         return

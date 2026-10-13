@@ -312,6 +312,7 @@ def create_financial_report_selector() -> Tuple[str, str]:
     options = [
         ("حصر قيمة العقود", "contract_values"),
         ("المستخلصات", "invoices"),
+        ("التحويلات والشيكات", "checks"),
     ]
     selected = st.selectbox(
         "نوع التقرير المالي",
@@ -332,6 +333,15 @@ def create_financial_report_selector() -> Tuple[str, str]:
             index=0,
             format_func=lambda item: item[0],
             key="invoice_report_view",
+        )
+        view_key = view[1]
+    elif report_key == "checks":
+        view = st.selectbox(
+            "طريقة العرض",
+            options=[("الشيكات خلال فتره زمنيه", "period")],
+            index=0,
+            format_func=lambda item: item[0],
+            key="checks_report_view",
         )
         view_key = view[1]
     return report_key, view_key
