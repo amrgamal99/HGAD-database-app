@@ -9,8 +9,10 @@ from typing import Optional, Tuple, Dict, List
 import urllib.parse
 
 SRC_DIR = Path(__file__).resolve().parent
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+src_path = str(SRC_DIR)
+if src_path in sys.path:
+    sys.path.remove(src_path)
+sys.path.insert(0, src_path)
 
 import pandas as pd
 import streamlit as st
