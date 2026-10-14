@@ -482,13 +482,18 @@ def fetch_checks_report_data(
     date_field: str,
     date_from=None,
     date_to=None,
+    check_number_prefix: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Fetch checks filtered by either check date and attach company labels."""
+    """Fetch checks by date or check-number prefix and attach company labels."""
     allowed_date_fields = {"تاريخ الشيك", "تاريخ استلام شيك"}
     if _supabase is None or date_field not in allowed_date_fields:
         return pd.DataFrame()
     try:
         query = _supabase.table("checks").select("*")
+        prefix = str(check_number_prefix or "").strip()
+        if prefix:
+            escaped_prefix = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            query = query.ilike("رقم الشيك", f"{escaped_prefix}%")
         if date_from:
             query = query.gte(date_field, str(date_from))
         if date_to:

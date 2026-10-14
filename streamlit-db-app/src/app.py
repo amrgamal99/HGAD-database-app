@@ -56,7 +56,12 @@ from components.filters import (
 )
 from reports.contract_values import render_contract_values_report
 from reports.invoices import render_invoices_report
-from reports.checks import CHECK_DATE, RECEIPT_DATE, render_checks_report
+from reports.checks import (
+    CHECK_DATE,
+    PURPOSE_FILTER_OPTIONS,
+    RECEIPT_DATE,
+    render_checks_report,
+)
 
 # =========================================================
 # Paths / Assets
@@ -1299,16 +1304,30 @@ def main() -> None:
             sidebar_date_from = None
             sidebar_date_to = None
             sidebar_check_date_field = CHECK_DATE
+            sidebar_check_number_prefix = None
+            sidebar_check_purpose = None
             if report_key == "checks":
-                sidebar_check_date_field = st.selectbox(
-                    "حقل التاريخ",
-                    options=[CHECK_DATE, RECEIPT_DATE],
-                    format_func=lambda field: {
-                        CHECK_DATE: "تاريخ الشيك",
-                        RECEIPT_DATE: "تاريخ استلام شيك",
-                    }[field],
-                    key="checks_date_field",
-                )
+                if report_view == "period":
+                    sidebar_check_date_field = st.selectbox(
+                        "حقل التاريخ",
+                        options=[CHECK_DATE, RECEIPT_DATE],
+                        format_func=lambda field: {
+                            CHECK_DATE: "تاريخ الشيك",
+                            RECEIPT_DATE: "تاريخ استلام شيك",
+                        }[field],
+                        key="checks_date_field",
+                    )
+                else:
+                    sidebar_check_number_prefix = st.text_input(
+                        "بواسطة رقم شيك",
+                        key="checks_search_number_prefix",
+                    )
+                    sidebar_check_purpose = st.selectbox(
+                        "بواسطة الغرض من اصدار الشيك",
+                        options=[None, *PURPOSE_FILTER_OPTIONS],
+                        format_func=lambda purpose: purpose if purpose is not None else "الكل",
+                        key="checks_search_purpose",
+                    )
             if show_financial_dates:
                 c_from, c_to = st.columns(2)
                 with c_from:
@@ -1325,7 +1344,8 @@ def main() -> None:
                         key="checks_financial_to" if report_key == "checks" else "financial_to",
                         format="DD/MM/YYYY",
                     )
-            financial_search_clicked = st.button("بحث", key="financial_search_btn", use_container_width=True)
+            if report_key != "checks" or report_view == "period":
+                financial_search_clicked = st.button("بحث", key="financial_search_btn", use_container_width=True)
 
     normalized_app_mode = " ".join(str(app_mode or "").split())
     if normalized_app_mode == "تقارير مالية":
@@ -1350,9 +1370,12 @@ def main() -> None:
         if report_key == "checks":
             render_checks_report(
                 conn,
+                view_key=report_view,
                 date_field=sidebar_check_date_field,
                 date_from=sidebar_date_from,
                 date_to=sidebar_date_to,
+                check_number_prefix=sidebar_check_number_prefix,
+                check_purpose=sidebar_check_purpose,
             )
             return
         return

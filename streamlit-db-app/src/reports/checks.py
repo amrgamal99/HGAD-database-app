@@ -33,6 +33,11 @@ PURPOSE_LABELS = {
     "رد تامينات اجتماعيه": "رد تامينات اجتماعيه",
     "سداد مستخلص": "سداد مستخلص",
 }
+PURPOSE_FILTER_OPTIONS = (
+    "رد تامينات اجتماعيه",
+    "سداد مستخلص",
+    "دفعه مقدمه",
+)
 
 
 def _to_iso_date(value) -> Optional[str]:
@@ -78,6 +83,16 @@ def _prepare_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             .fillna("")
         )
     return display_df
+
+
+def _filter_checks_by_purpose(df: pd.DataFrame, purpose: Optional[str]) -> pd.DataFrame:
+    if purpose is None:
+        return df
+    if "الغرض من إصدار الشيك" not in df.columns:
+        return df.iloc[0:0].copy()
+    target = _normalize_purpose(purpose)
+    mask = df["الغرض من إصدار الشيك"].map(_normalize_purpose) == target
+    return df.loc[mask].copy()
 
 
 def _factory_check_summary(df: pd.DataFrame) -> pd.DataFrame:
@@ -141,6 +156,28 @@ def _render_factory_cards(df: pd.DataFrame) -> None:
         st.info("لا توجد بيانات للشيكات خلال الفترة المحددة.")
         return
     st.markdown(_factory_cards_html(summary), unsafe_allow_html=True)
+
+
+def _render_checks_details(display_df: pd.DataFrame) -> None:
+    st.dataframe(
+        display_df,
+        column_config={
+            "رابط نسخة الشيك": st.column_config.LinkColumn(
+                label="رابط نسخة الشيك",
+                display_text="فتح الشيك",
+                max_chars=50,
+            ),
+        },
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.download_button(
+        label="تنزيل Excel",
+        data=_to_excel_bytes(display_df),
+        file_name="تقرير_الشيكات.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="checks_excel_download",
+    )
 
 
 def _to_excel_bytes(df: pd.DataFrame) -> bytes:
@@ -245,11 +282,51 @@ def render_checks_report(
     date_field: str = CHECK_DATE,
     date_from=None,
     date_to=None,
+    view_key: str = "period",
+    check_number_prefix: Optional[str] = None,
+    check_purpose: Optional[str] = None,
 ) -> None:
     st.markdown("<h2 style='text-align:right'>التحويلات والشيكات</h2>", unsafe_allow_html=True)
     if conn is None:
         st.error("تعذر الاتصال بقاعدة البيانات.")
         return
+    if view_key == "search":
+        df = fetch_checks_report_data(
+            conn,
+            date_field=CHECK_DATE,
+            check_number_prefix=check_number_prefix,
+        )
+        if df.empty:
+            st.info("لا توجد شيكات مطابقة.")
+            return
+
+        df = _filter_checks_by_purpose(df, check_purpose)
+        if df.empty:
+            st.info("لا توجد شيكات مطابقة.")
+            return
+
+        bank_values = sorted(
+            {
+                str(value).strip()
+                for value in df.get("البنك", pd.Series(dtype=object)).dropna()
+                if str(value).strip()
+            }
+        )
+        selected_bank = st.selectbox(
+            "بواسطة اسم بنك",
+            options=["الكل", *bank_values],
+            key="checks_search_bank",
+        )
+        if selected_bank != "الكل":
+            df = df.loc[df["البنك"].astype(str).str.strip() == selected_bank]
+        if df.empty:
+            st.info("لا توجد شيكات مطابقة.")
+            return
+
+        st.markdown("### نتائج البحث عن شيك")
+        _render_checks_details(_prepare_display_dataframe(df))
+        return
+
     if date_field not in DATE_FIELDS:
         date_field = CHECK_DATE
 
@@ -275,22 +352,4 @@ def render_checks_report(
     _render_factory_cards(display_df)
     st.divider()
     st.markdown("### تفاصيل الشيكات")
-    st.dataframe(
-        display_df,
-        column_config={
-            "رابط نسخة الشيك": st.column_config.LinkColumn(
-                label="رابط نسخة الشيك",
-                display_text="فتح الشيك",
-                max_chars=50,
-            ),
-        },
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.download_button(
-        label="تنزيل Excel",
-        data=_to_excel_bytes(display_df),
-        file_name="تقرير_الشيكات.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="checks_excel_download",
-    )
+    _render_checks_details(display_df)
